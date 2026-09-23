@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#4A3222">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="OSC">
+  <title>Mantenciones OSC</title>
+  <link rel="icon" href="img/isotipo.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="img/icono-192.png">
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="toast" class="toast"><div class="spinner" id="toast-spin"></div><span id="toast-msg"></span></div>
+
+<header class="header">
+  <img src="img/isotipo.svg" alt="OSC">
+  <div class="titulo">
+    <h1>Mantenciones OSC<span id="demo-tag" class="demo-tag hidden">DEMO</span></h1>
+    <div class="sub" id="sync-status">Sin conectar</div>
+  </div>
+  <button class="icon-btn" id="btn-sync" title="Sincronizar" aria-label="Sincronizar">⟳</button>
+</header>
+
+<main id="app"></main>
+
+<nav class="bottom-nav" id="bottom-nav">
+  <a href="#/ots" data-nav="ots"><span class="ico">📋</span>OT</a>
+  <a href="#/clientes" data-nav="clientes"><span class="ico">👥</span>Clientes</a>
+  <a href="#/config" data-nav="config"><span class="ico">⚙️</span>Config</a>
+</nav>
+
+<div id="modal-root"></div>
+
+<script src="demo.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
