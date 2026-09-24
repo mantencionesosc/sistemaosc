@@ -16,7 +16,9 @@ let DEMO = LS.get('osc_demo') === '1';
 const S = { config: {}, categorias: [], tiposItem: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [] };
 const FOTOS = {};   // nOT -> [{...foto, data}] (se cargan al abrir la OT)
 let SYNCED = false;
-const APP_VERSION = '2.3';
+const APP_VERSION = '2.4';
+const API_REQUERIDA = '2.3';  // versión mínima del Apps Script que necesita esta app
+const cmpVer = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
 let API_VERSION = '';
 
 // ════════════════════════════════════════════════════════ CÁLCULO (compartido con demo.js)
@@ -206,7 +208,7 @@ window.addEventListener('beforeunload', e => { if (ED && ED.dirty) { e.preventDe
 function render() {
   const [vista, param] = ruta();
   RUTA_ACTUAL = location.hash || '#/ots';
-  document.querySelectorAll('.bottom-nav a').forEach(a => a.classList.toggle('active', a.dataset.nav === (vista === 'ot' ? 'ots' : vista === 'cliente' ? 'clientes' : vista)));
+  document.querySelectorAll('.bottom-nav a').forEach(a => a.classList.toggle('active', a.dataset.nav === ({ ot: 'ots', cliente: 'clientes', cot: 'cots' }[vista] || vista)));
   document.body.classList.toggle('editor-open', vista === 'ot');
   const app = $('#app');
   if (vista !== 'ot') ED = null;
@@ -215,6 +217,8 @@ function render() {
   if (vista === 'clientes') return renderClientes(app);
   if (vista === 'cliente') return renderCliente(app, param);
   if (vista === 'config') return renderConfig(app);
+  if (vista === 'cots') return renderCots(app);
+  if (vista === 'cot') return renderCot(app, decodeURIComponent(param || ''));
   return renderOTs(app);
 }
 
@@ -817,7 +821,7 @@ function modalCot(id) {
     try {
       const r = await api('setEstadoCotizacion', { id, estado });
       S.cotizaciones = S.cotizaciones.map(x => x.id === id ? r.item : x); guardarCache();
-      toast('✓ ' + etiquetaCot(r.item) + ': ' + estado, 'ok'); cerrarModal(); renderCotCard();
+      toast('✓ ' + etiquetaCot(r.item) + ': ' + estado, 'ok'); cerrarModal(); if (ED) renderCotCard(); else render();
     } catch (err) { toast('No se guardó: ' + err.message, 'err'); }
   };
   const on = (sel, fn) => { const el = m.querySelector(sel); if (el) el.onclick = fn; };
@@ -825,6 +829,93 @@ function modalCot(id) {
   on('#mc-desc', () => { if (confirm('¿Descartar ' + etiquetaCot(c) + '? Quedará en gris en el historial.')) cambiar('Descartada'); });
   on('#mc-vig', () => cambiar('Vigente'));
   on('#mc-ver', () => { cerrarModal(); abrirGenerar(ots, c.numero); });
+}
+
+// ── Sección 📄 Cotizaciones ──────────────────────────
+const claveCot = c => c.numero || otNum(c.nOT);   // agrupa las versiones de una misma cotización
+let FILTRO_COT = LS.get('osc_filtro_cot', 'Vigente');
+let BUSQ_COT = '';
+
+function gruposCot() {
+  const g = new Map();
+  S.cotizaciones.forEach(c => { const k = claveCot(c); if (!g.has(k)) g.set(k, []); g.get(k).push(c); });
+  return [...g.entries()].map(([clave, vs]) => {
+    vs.sort((a, b) => b.version - a.version);
+    return { clave, versiones: vs, ultima: vs[0], ots: otsDeCot(vs[0]) };
+  }).sort((a, b) => String(b.ultima.fecha).localeCompare(String(a.ultima.fecha)) || b.clave.localeCompare(a.clave));
+}
+
+function renderCots(app) {
+  const filtros = [['Vigente', 'Vigentes'], ['Aprobada', 'Aprobadas'], ['Descartada', 'Descartadas'], ['todas', 'Todas']];
+  const q = norm(BUSQ_COT);
+  let lista = gruposCot();
+  if (FILTRO_COT !== 'todas') lista = lista.filter(g => estadoCot(g.ultima) === FILTRO_COT);
+  if (q) lista = lista.filter(g => norm([g.clave, ...g.ots.map(n => { const o = S.ots.find(x => Number(x.nOT) === n); return otNum(n) + ' ' + (o ? o.titulo + ' ' + o.ubicacion : ''); })].join(' ')).includes(q));
+  app.innerHTML = `
+    ${noConectado()}
+    <input class="search" type="search" id="busq-cot" placeholder="Buscar COT, OT o título…" value="${esc(BUSQ_COT)}">
+    <div class="chips">${filtros.map(([k, t]) => `<button class="chip ${FILTRO_COT === k ? 'on' : ''}" data-f="${k}">${t}</button>`).join('')}</div>
+    <div style="padding-bottom:64px">${lista.length ? lista.map(g => {
+      const c = g.ultima;
+      const titulos = g.ots.map(n => { const o = S.ots.find(x => Number(x.nOT) === n); return `${otNum(n)}${o ? ' · ' + esc(o.titulo) : ''}`; });
+      return `<a class="ot-item cot-item e-${slug(estadoCot(c))}" href="#/cot/${encodeURIComponent(g.clave)}">
+        <div class="ot-top"><span class="ot-num">${esc(g.clave)} <span style="color:var(--gris);font-weight:600">v${esc(c.version)}</span></span><span>${fechaCorta(c.fecha)}</span></div>
+        <div class="ot-meta" style="margin-top:4px">${titulos.join('<br>')}</div>
+        <div class="ot-bottom"><div class="badges">${badgeCot(c)}${g.ots.length > 1 ? `<span class="badge b-oc">${g.ots.length} OT</span>` : ''}</div>
+          <div class="ot-total">${clp(c.total)}</div></div>
+      </a>`;
+    }).join('') : `<div class="empty"><span class="big">📄</span>${S.cotizaciones.length ? 'No hay cotizaciones con este filtro.' : 'Aún no hay cotizaciones.<br>Se generan desde cada OT, o varias juntas con el botón de abajo.'}</div>`}</div>
+    <button class="fab" id="btn-cot-multi">＋ Cotizar varias OT</button>`;
+  $('#busq-cot').addEventListener('input', e => { BUSQ_COT = e.target.value; const pos = e.target.selectionStart; renderCots(app); const b = $('#busq-cot'); b.focus(); b.setSelectionRange(pos, pos); });
+  app.querySelectorAll('.chip').forEach(c => c.onclick = () => { FILTRO_COT = c.dataset.f; LS.set('osc_filtro_cot', FILTRO_COT); renderCots(app); });
+  $('#btn-cot-multi').onclick = () => { SEL = new Set(); location.hash = '#/ots'; };
+}
+
+function renderCot(app, clave) {
+  const g = gruposCot().find(x => x.clave === clave);
+  if (!g) { app.innerHTML = `<div class="empty"><span class="big">🔍</span>No se encontró la cotización ${esc(clave)}.<br><br><a class="btn btn-sec" href="#/cots">Volver</a></div>`; return; }
+  const c = g.ultima, e = estadoCot(c);
+  const ots = g.ots.map(n => S.ots.find(o => Number(o.nOT) === n) || { nOT: n, titulo: '(OT no encontrada)' });
+  const sol = S.solicitantes.find(s => s.id === c.solicitanteId);
+  app.innerHTML = `
+    <div class="ed-head"><button class="back" onclick="location.hash='#/cots'" aria-label="Volver">←</button><h2>${esc(g.clave)}</h2>${badgeCot(c)}</div>
+    <div class="card">
+      <h2>📋 OT incluidas <span class="extra">${ots.length}</span></h2>
+      ${ots.map(o => `<a class="list-item" href="#/ot/${o.nOT}" style="text-decoration:none;color:inherit">
+        <div class="li-body"><div class="li-tit">${otNum(o.nOT)} · ${esc(o.titulo)}</div>
+        <div class="li-sub">${fechaCorta(o.fechaInicio)}${o.ubicacion ? ' · ' + esc(o.ubicacion) : ''}${o.neto != null ? ' · Neto ' + clp(o.neto) : ''}</div></div><span class="chev">›</span></a>`).join('')}
+      <div class="res-row fuerte" style="margin-top:8px"><span>Neto</span><span>${clp(c.neto)}</span></div>
+      <div class="res-row total"><span>Total</span><span>${clp(c.total)}</span></div>
+      ${sol ? `<p class="hint">Atención: ${esc(sol.nombre)}${sol.cargo ? ' · ' + esc(sol.cargo) : ''}</p>` : ''}
+    </div>
+    <div class="card">
+      <h2>🗂 Versiones</h2>
+      ${g.versiones.map(v => `<div class="list-item ${['Reemplazada', 'Descartada'].includes(estadoCot(v)) ? 'inactivo' : ''}" data-cot="${esc(v.id)}">
+        <div class="li-body"><div class="li-tit">v${esc(v.version)} ${badgeCot(v)}</div><div class="li-sub">${fechaCorta(v.fecha)} ${esc(String(v.fecha).slice(11, 16))} · ${clp(v.total)}</div></div>
+        ${v.pdfUrl ? `<a class="btn btn-sec btn-sm" href="${esc(v.pdfUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">PDF</a>` : ''}</div>`).join('')}
+    </div>
+    <div class="card">
+      ${c.numero ? `<button class="btn btn-primary btn-full" id="cd-ver">📄 Generar nueva versión (v${Calc.num(c.version) + 1})</button>` : '<p class="hint">Cotización anterior a la numeración COT: para una versión nueva, genera una cotización nueva desde la OT.</p>'}
+      <div class="btn-row">
+        ${e !== 'Aprobada' ? '<button class="btn btn-sec" id="cd-apr">✅ Aprobada</button>' : ''}
+        ${e !== 'Descartada' ? '<button class="btn btn-danger" id="cd-desc">✕ Descartar</button>' : ''}
+        ${e === 'Aprobada' || e === 'Descartada' ? '<button class="btn btn-sec" id="cd-vig">↺ Vigente</button>' : ''}
+      </div>
+    </div>`;
+  app.querySelectorAll('[data-cot]').forEach(el => el.onclick = () => modalCot(el.dataset.cot));
+  const cambiar = async estado => {
+    toast('Guardando…');
+    try {
+      const r = await api('setEstadoCotizacion', { id: c.id, estado });
+      S.cotizaciones = S.cotizaciones.map(x => x.id === c.id ? r.item : x); guardarCache();
+      toast('✓ ' + etiquetaCot(r.item) + ': ' + estado, 'ok'); renderCot(app, clave);
+    } catch (err) { toast('No se guardó: ' + err.message, 'err'); }
+  };
+  const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
+  on('#cd-ver', () => abrirGenerar(g.ots, c.numero));
+  on('#cd-apr', () => cambiar('Aprobada'));
+  on('#cd-desc', () => { if (confirm('¿Descartar ' + etiquetaCot(c) + '?')) cambiar('Descartada'); });
+  on('#cd-vig', () => cambiar('Vigente'));
 }
 
 /** Valida la selección de OT y abre el diálogo de generación. */
@@ -1195,7 +1286,7 @@ function renderConfig(app) {
     </div>` : ''}
 
     <p class="hint" style="text-align:center;margin:18px 0">Mantenciones OSC · app ${APP_VERSION}${DEMO ? ' · modo demo' : API_VERSION ? ' · Apps Script ' + esc(API_VERSION) : ''}
-      ${!DEMO && API_VERSION && API_VERSION !== APP_VERSION ? '<br><span style="color:#B3261E;font-weight:700">⚠ Las versiones no coinciden: actualiza el Apps Script (nueva versión de la implementación) o recarga la app.</span>' : ''}</p>`;
+      ${!DEMO && API_VERSION && !(cmpVer(API_VERSION, API_REQUERIDA) >= 0) ? '<br><span style="color:#B3261E;font-weight:700">⚠ Esta app necesita Apps Script ' + API_REQUERIDA + ' o superior: actualiza el Apps Script (nueva versión de la implementación).</span>' : ''}</p>`;
 
   $('#k-ok').onclick = async () => {
     const url = $('#k-url').value.trim(), tok = $('#k-token').value.trim();

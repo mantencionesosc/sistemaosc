@@ -169,7 +169,8 @@ const Cotizacion = (() => {
     } else {
       items.forEach(it => {
         const ot = it.ot;
-        const sub = [ot.descripcion, !ubicComun && it.ubicacion ? 'Ubicación: ' + ubicTxt(it.ubicacion) : ''].filter(Boolean).join('\n');
+        const datosOT = [ot.fechaInicio ? 'Fecha: ' + fecha(ot.fechaInicio) : '', !ubicComun && it.ubicacion ? 'Ubicación: ' + ubicTxt(it.ubicacion) : ''].filter(Boolean).join(' · ');
+        const sub = [ot.descripcion, datosOT].filter(Boolean).join('\n');
         const cab = { desc: `${otNum(ot.nOT)} · ${ot.titulo}`, sub, monto: it.neto, principal: true };
         if (resumida) { rows.push(cab); return; }
         cab.monto = null;
