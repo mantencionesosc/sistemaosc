@@ -50,6 +50,19 @@ const Cotizacion = (() => {
     return out;
   }
 
+  /** Reparte el recargo general en los montos (el cliente no lo ve como línea aparte).
+   *  Cada monto se escala por neto/subtotal y el redondeo se ajusta en la fila mayor para que sumen exactamente el neto. */
+  function repartirRecargo(rows, neto) {
+    const items = rows.filter(r => !r.seccion);
+    const base = items.reduce((s, r) => s + r.monto, 0);
+    if (!base || !neto || base === neto) return rows;
+    const k = neto / base;
+    items.forEach(r => { r.monto = Math.round(r.monto * k); });
+    const dif = neto - items.reduce((s, r) => s + r.monto, 0);
+    if (dif) items.reduce((a, b) => (b.monto > a.monto ? b : a)).monto += dif;
+    return rows;
+  }
+
   /**
    * datos: { ot, lineas, cfg, cliente, solicitante, ubicacion, version, fechaISO,
    *          opciones: { agruparMO, incluirCondiciones, detallar[] }, fotos: [{etapa, descripcion, data}], logo (dataURL),
@@ -140,6 +153,7 @@ const Cotizacion = (() => {
     };
     encabezadoTabla();
     const rows = filas(datos.lineas, { detallar: opciones.detallar || [], agruparMO: !!opciones.agruparMO, montoLinea: datos.montoLinea });
+    repartirRecargo(rows, totales.neto);
     rows.forEach(r => {
       if (r.seccion) {
         saltoSi(16, encabezadoTabla);
@@ -237,5 +251,5 @@ const Cotizacion = (() => {
     return doc;
   }
 
-  return { generar, filas };
+  return { generar, filas, repartirRecargo };
 })();

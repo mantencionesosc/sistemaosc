@@ -251,10 +251,10 @@ input[readonly] { background: var(--arena); }
 .list-item .chev { color: var(--gris); font-size: 20px; }
 .list-item.inactivo { opacity: .5; }
 
-.cat-row { display: grid; grid-template-columns: 1fr 78px 40px; gap: 8px; align-items: center; margin-bottom: 8px; }
+.cat-row { display: grid; grid-template-columns: 1fr 104px 40px; gap: 8px; align-items: center; margin-bottom: 8px; }
 .cat-row input[type=checkbox] { width: 22px; height: 22px; min-height: 0; justify-self: center; accent-color: var(--terra); }
 .cat-row .ejemplo { grid-column: 1 / -1; font-size: 12px; color: var(--gris); margin: -4px 0 4px 2px; }
-.cat-head { display: grid; grid-template-columns: 1fr 78px 40px; gap: 8px; font-size: 12px; font-weight: 700; color: var(--gris); margin-bottom: 6px; }
+.cat-head { display: grid; grid-template-columns: 1fr 104px 40px; gap: 8px; font-size: 12px; font-weight: 700; color: var(--gris); margin-bottom: 6px; }
 
 /* ── Toast ────────────────────────────── */
 .toast {
@@ -285,3 +285,9 @@ input[readonly] { background: var(--arena); }
 .foto-grande { width: 100%; max-height: 55vh; object-fit: contain; border-radius: 12px; background: var(--arena); display: block; }
 label.btn { margin: 0; color: var(--cafe); font-size: 15px; }
 label.btn-sec { color: var(--cafe); }
+
+/* ── Resumen de la OT ─────────────────── */
+.res-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; font-size: 15px; border-bottom: 1px solid var(--linea); }
+.res-row small { color: var(--gris); font-size: 12px; }
+.res-row.fuerte { font-weight: 700; }
+.res-row.total { border-bottom: 0; font-weight: 800; font-size: 18px; color: var(--terra); padding-top: 10px; }

@@ -19,7 +19,8 @@ const SCHEMA = {
   ],
   Categorias: [
     ['id', 'ID'], ['nombre', 'Nombre'], ['factor', 'Factor'], ['orden', 'Orden'], ['activa', 'Activa'],
-    ['uso', 'Uso']  // 'Gestión' (tiempo de gestión de compras) u 'Oficio' (mano de obra)
+    ['uso', 'Uso'],  // 'Gestión' (tiempo de gestión de compras) u 'Oficio' (mano de obra)
+    ['valorHora', 'Valor hora']  // CLP neto por hora (desde v2.1; la columna Factor ya no se usa)
   ],
   TiposItem: [
     ['id', 'ID'], ['nombre', 'Nombre'], ['orden', 'Orden'], ['activo', 'Activo']
@@ -46,7 +47,8 @@ const SCHEMA = {
     ['nOC', 'N° OC'], ['folioSII', 'Folio SII'],
     ['neto', 'Neto'], ['ivaPct', 'IVA %'], ['iva', 'IVA'], ['total', 'Total'],
     ['notas', 'Notas'], ['creada', 'Creada'], ['actualizada', 'Actualizada'],
-    ['detallar', 'Detallar en cotización']  // IDs de tipos de ítem a desglosar, separados por coma
+    ['detallar', 'Detallar en cotización'],  // IDs de tipos de ítem a desglosar, separados por coma
+    ['subtotal', 'Subtotal (costo)'], ['recargoPct', 'Recargo %'], ['recargo', 'Recargo']  // neto = subtotal + recargo
   ],
   OT_Lineas: [
     ['id', 'ID'], ['nOT', 'N° OT'], ['orden', 'Orden'], ['fecha', 'Fecha'], ['tipo', 'Tipo'],
@@ -84,9 +86,9 @@ const TEXT_COLS = {
 };
 
 const CONFIG_DEFAULTS = [
-  ['HH_BASE', 0, 'Valor hora base (CLP, neto). Mano de obra = horas × HH base × factor de la categoría'],
+  ['HH_BASE', 0, '(Ya no se usa desde v2.1: cada categoría tiene su valor hora)'],
   ['IVA_PCT', 19, 'IVA en %'],
-  ['RECARGO_MATERIALES_PCT', 0, '% de recargo sobre los ítems de gestión de compras (0 = al costo)'],
+  ['RECARGO_MATERIALES_PCT', 30, 'Recargo general en %: se aplica sobre el neto de cada OT y se reparte en las líneas de la cotización'],
   ['EMPRESA_NOMBRE', 'Mantenciones OSC', 'Nombre de fantasía'],
   ['EMPRESA_RAZON_SOCIAL', '', 'Razón social (como aparece en el SII)'],
   ['EMPRESA_RUT', '', 'RUT de la empresa'],
@@ -135,11 +137,11 @@ function setup() {
     if (existentes.indexOf(d[0]) === -1) cfgSh.appendRow(d);
   });
 
-  // Categorías por defecto (factor 1,0: ajústalo en la app → Config)
+  // Categorías por defecto (valor hora en 0: ajústalo en la app → Config)
   if (readTable_('Categorias').length === 0) {
     const catSh = ss.getSheetByName('Categorias');
     CATEGORIAS_DEFAULT.forEach(function (n, i) {
-      catSh.appendRow(['CAT-' + (i + 1), n, 1, i + 1, true, i === 0 ? 'Gestión' : 'Oficio']);
+      catSh.appendRow(['CAT-' + (i + 1), n, 1, i + 1, true, i === 0 ? 'Gestión' : 'Oficio', 0]);
     });
   } else {
     // Migración: completa la columna Uso en categorías antiguas
@@ -147,6 +149,16 @@ function setup() {
     const usoCol = SCHEMA.Categorias.findIndex(function (c) { return c[0] === 'uso'; }) + 1;
     readTable_('Categorias').forEach(function (c, i) {
       if (!c.uso) catSh.getRange(i + 2, usoCol).setValue(normTxt_(c.nombre) === 'gestion de compras' ? 'Gestión' : 'Oficio');
+    });
+  }
+
+  // Migración v2.1: valor hora por categoría = HH base × factor (si está vacío)
+  {
+    const catSh = ss.getSheetByName('Categorias');
+    const vhCol = SCHEMA.Categorias.findIndex(function (c) { return c[0] === 'valorHora'; }) + 1;
+    const hhBase = num_(configObj_().HH_BASE);
+    readTable_('Categorias').forEach(function (c, i) {
+      if (c.valorHora === '' || c.valorHora == null) catSh.getRange(i + 2, vhCol).setValue(Math.round(hhBase * (num_(c.factor) || 1)));
     });
   }
 
@@ -277,14 +289,15 @@ function saveCategoria_(item) {
   if (!item) throw new Error('Falta la categoría');
   const nombre = String(item.nombre || '').trim();
   if (!nombre) throw new Error('La categoría necesita un nombre');
-  const factor = num_(item.factor);
-  if (!(factor > 0)) throw new Error('El factor debe ser mayor que 0');
+  const valorHora = Math.round(num_(item.valorHora));
+  if (!(valorHora > 0)) throw new Error('El valor hora de "' + nombre + '" debe ser mayor que 0');
   const rows = readTable_('Categorias');
   const prev = item.id ? rows.find(function (c) { return c.id === item.id; }) : null;
   const obj = {
     id: item.id || nextId_('CAT', rows, 'id'),
     nombre: nombre,
-    factor: factor,
+    factor: prev && prev.factor !== '' ? prev.factor : 1,
+    valorHora: valorHora,
     orden: item.orden != null && item.orden !== '' ? num_(item.orden) : rows.length + 1,
     activa: item.activa !== false,
     uso: prev && prev.uso ? prev.uso : 'Oficio'  // el uso no se cambia desde la app
@@ -369,7 +382,11 @@ function saveOT_(ot, lineas) {
   const hoy = today_();
   const lineasOk = lineas.map(function (l, i) { return normalizarLinea_(l, i, nOT, cfg, cats, tipos, hoy); });
 
-  const neto = lineasOk.reduce(function (s, l) { return s + (l.incluida ? l.monto : 0); }, 0);
+  // Subtotal al costo + recargo general (congelado en la OT al crearla) = neto
+  const subtotal = lineasOk.reduce(function (s, l) { return s + (l.incluida ? l.monto : 0); }, 0);
+  const recargoPct = previa && previa.recargoPct !== '' && previa.recargoPct != null ? num_(previa.recargoPct) : num_(cfg.RECARGO_MATERIALES_PCT);
+  const recargo = Math.round(subtotal * recargoPct / 100);
+  const neto = subtotal + recargo;
   const ivaPct = previa && previa.ivaPct !== '' && previa.ivaPct != null ? num_(previa.ivaPct) : num_(cfg.IVA_PCT);
   const iva = Math.round(neto * ivaPct / 100);
 
@@ -395,7 +412,8 @@ function saveOT_(ot, lineas) {
     creada: previa ? previa.creada : now_(),
     actualizada: now_(),
     detallar: String(ot.detallar || '').split(',').map(function (x) { return x.trim(); })
-      .filter(function (x) { return x && tipos.some(function (t) { return t.id === x; }); }).join(',')
+      .filter(function (x) { return x && tipos.some(function (t) { return t.id === x; }); }).join(','),
+    subtotal: subtotal, recargoPct: recargoPct, recargo: recargo
   };
 
   upsert_('OT', 'nOT', obj);
@@ -423,10 +441,10 @@ function normalizarLinea_(l, i, nOT, cfg, cats, tipos, hoy) {
     if (!(cant > 0)) throw new Error(n + ': la cantidad debe ser mayor que 0');
     const costo = num_(l.costoUnit);
     if (costo < 0) throw new Error(n + ': costo inválido');
-    const rec = l.recargoPct !== '' && l.recargoPct != null ? num_(l.recargoPct) : num_(cfg.RECARGO_MATERIALES_PCT);
+    // Desde v2.1 los ítems van al costo: el recargo se aplica al final, sobre el neto de la OT
     o.tipoItemId = t.id; o.tipoItem = t.nombre;
-    o.cantidad = cant; o.costoUnit = costo; o.recargoPct = rec;
-    o.monto = Math.round(cant * costo * (1 + rec / 100));
+    o.cantidad = cant; o.costoUnit = costo; o.recargoPct = 0;
+    o.monto = Math.round(cant * costo);
     return o;
   }
   // Horas (Tiempo de gestión o Mano de obra)
@@ -442,9 +460,9 @@ function normalizarLinea_(l, i, nOT, cfg, cats, tipos, hoy) {
   const horas = num_(l.horas);
   if (horas < 1) throw new Error(n + ': mínimo 1 hora');
   if (Math.round(horas * 2) !== horas * 2) throw new Error(n + ': las horas van de media en media (1; 1,5; 2…)');
-  // Valores congelados: si la línea ya los trae se respetan; si es nueva se toman de Config
-  const hh = l.hh !== '' && l.hh != null ? num_(l.hh) : num_(cfg.HH_BASE);
-  const factor = l.factor !== '' && l.factor != null ? num_(l.factor) : num_(cat.factor);
+  // Valor hora congelado: si la línea ya lo trae se respeta; si es nueva se toma el de la categoría
+  const hh = l.hh !== '' && l.hh != null ? num_(l.hh) : num_(cat.valorHora);
+  const factor = l.factor !== '' && l.factor != null ? num_(l.factor) : 1;
   o.categoriaId = cat.id; o.categoria = cat.nombre;
   o.horas = horas; o.hh = hh; o.factor = factor;
   o.monto = Math.round(horas * hh * factor);

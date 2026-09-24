@@ -3,7 +3,7 @@
 App web para registrar las **órdenes de trabajo (OT)** de Mantenciones OSC desde el celular.
 La fuente de verdad es una **planilla de Google Sheets** y el backend es **Apps Script**.
 
-**Versión 2.0 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de HH, IVA, recargo, categorías con factor y datos de la empresa.
+**Versión 2.1 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
 
 **Próxima etapa:** asignación de OC, folio SII y resumen por cliente (etapa 3).
 
@@ -14,18 +14,21 @@ La fuente de verdad es una **planilla de Google Sheets** y el backend es **Apps 
 Cada OT tiene dos bloques:
 
 **🛒 Gestión de compras** (uno por OT)
-- *Ítems de compra*: tipo (Material, Insumo, Arriendo de herramienta, Flete / transporte, Combustible… editable en Config) · cantidad × costo unitario × (1 + % recargo compras). Si un ítem se marca como **descartado**, queda anotado pero no suma.
-- *Tiempo de gestión*: horas × HH base × factor de la categoría "Gestión de compras". Mínimo 1 h, de media en media.
+- *Ítems de compra*: tipo (Material, Insumo, Arriendo de herramienta, Flete / transporte, Combustible… editable en Config) · cantidad × costo unitario, **al costo**. Si un ítem se marca como **descartado**, queda anotado pero no suma.
+- *Tiempo de gestión*: horas × valor hora de la categoría "Gestión de compras". Mínimo 1 h, de media en media.
 
-**🛠 Mano de obra**: horas × HH base × factor de la categoría de oficio.
+**🛠 Mano de obra**: horas × valor hora de la categoría de oficio.
 
-**Totales**: Neto = suma de lo incluido · IVA = Neto × IVA % · Total = Neto + IVA.
+**Totales**
+- Subtotal (costo) = suma de lo incluido
+- Recargo general (por defecto 30%, en Config) = Subtotal × %
+- Neto = Subtotal + Recargo · IVA = Neto × 19% · Total = Neto + IVA
 
-Cada línea guarda el HH, el factor y el recargo vigentes cuando se creó. Por eso, si cambias Config, las OT antiguas no se modifican.
+En la **cotización** el recargo no aparece como línea: se reparte proporcionalmente en cada monto, y la suma coincide exactamente con el neto.
 
-**En la cotización** (etapa 2), la gestión de compras aparece como una sola línea, *"Gestión de compras y materiales"*, salvo los tipos que marques con "Detallar" en cada OT.
+Cada línea guarda el valor hora vigente cuando se creó y cada OT guarda el % de recargo con que se creó. Si cambias Config, las OT antiguas no se modifican.
 
----
+**En la cotización**, la gestión de compras aparece como una sola línea, *"Gestión de compras y materiales"*, salvo los tipos que marques con "Detallar" en cada OT.
 
 ## Fotos y cotizaciones
 - Las fotos se achican en el teléfono (máx. 1600 px) y se guardan en Google Drive, en **Mantenciones OSC — Archivos / OT-0001 / …**

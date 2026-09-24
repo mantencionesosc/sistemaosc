@@ -3,7 +3,7 @@
  * Sirve para probar la app antes de conectar la planilla. Nada de esto llega a Google Sheets.
  */
 const Demo = (() => {
-  const KEY = 'osc_demo_db_v3';
+  const KEY = 'osc_demo_db_v4';
   const IMG = {};  // fotos de la demo: solo en memoria (no caben en el almacenamiento del navegador)
 
   function seed() {
@@ -12,18 +12,18 @@ const Demo = (() => {
       horas: '', hh: '', factor: '', cantidad: '', costoUnit: '', recargoPct: '', monto: 0, incluida: true, tipoItemId: '', tipoItem: '' }, x);
     return {
       config: {
-        HH_BASE: 10000, IVA_PCT: 19, RECARGO_MATERIALES_PCT: 10,
+        HH_BASE: 0, IVA_PCT: 19, RECARGO_MATERIALES_PCT: 30,
         EMPRESA_NOMBRE: 'Mantenciones OSC', EMPRESA_RAZON_SOCIAL: '', EMPRESA_RUT: '',
         EMPRESA_GIRO: '', EMPRESA_DIRECCION: '', EMPRESA_TELEFONO: '', EMPRESA_CORREO: '', EMPRESA_FIRMA: '',
         COT_CONDICIONES: '', COT_INCLUIR_CONDICIONES: 'NO', COT_MO_AGRUPADA: 'NO'
       },
       categorias: [
-        { id: 'CAT-1', nombre: 'Gestión de compras', factor: 1, orden: 1, activa: true, uso: 'Gestión' },
-        { id: 'CAT-2', nombre: 'Mantenciones (varios)', factor: 1, orden: 2, activa: true, uso: 'Oficio' },
-        { id: 'CAT-3', nombre: 'Electricidad', factor: 1.5, orden: 3, activa: true, uso: 'Oficio' },
-        { id: 'CAT-4', nombre: 'Mueblería', factor: 1.3, orden: 4, activa: true, uso: 'Oficio' },
-        { id: 'CAT-5', nombre: 'Carpintería', factor: 1.3, orden: 5, activa: true, uso: 'Oficio' },
-        { id: 'CAT-6', nombre: 'Gasfitería', factor: 1.5, orden: 6, activa: true, uso: 'Oficio' }
+        { id: 'CAT-1', nombre: 'Gestión de compras', factor: 1, valorHora: 10000, orden: 1, activa: true, uso: 'Gestión' },
+        { id: 'CAT-2', nombre: 'Mantenciones (varios)', factor: 1, valorHora: 10000, orden: 2, activa: true, uso: 'Oficio' },
+        { id: 'CAT-3', nombre: 'Electricidad', factor: 1, valorHora: 18000, orden: 3, activa: true, uso: 'Oficio' },
+        { id: 'CAT-4', nombre: 'Mueblería', factor: 1, valorHora: 13000, orden: 4, activa: true, uso: 'Oficio' },
+        { id: 'CAT-5', nombre: 'Carpintería', factor: 1, valorHora: 13000, orden: 5, activa: true, uso: 'Oficio' },
+        { id: 'CAT-6', nombre: 'Gasfitería', factor: 1, valorHora: 15000, orden: 6, activa: true, uso: 'Oficio' }
       ],
       tiposItem: [
         { id: 'TIP-1', nombre: 'Material', orden: 1, activo: true },
@@ -47,17 +47,18 @@ const Demo = (() => {
         { nOT: 1, fechaInicio: hoy, clienteId: 'CLI-1', cliente: 'UdeC', solicitanteId: 'SOL-1', solicitante: 'Jefa de ejemplo',
           ubicacionId: 'UBI-1', ubicacion: 'Edificio de ejemplo — Baño 2° piso', titulo: 'Cambio de lavamanos',
           descripcion: 'La jefa pide cambiar el lavamanos del baño del 2° piso.', estado: 'En curso',
-          nOC: '', folioSII: '', neto: 128390, ivaPct: 19, iva: 24394, total: 152784, notas: '', creada: hoy, actualizada: hoy, detallar: '' }
+          nOC: '', folioSII: '', neto: 159120, ivaPct: 19, iva: 30233, total: 189353, notas: '', creada: hoy, actualizada: hoy, detallar: '',
+          subtotal: 122400, recargoPct: 30, recargo: 36720 }
       ],
       lineas: [
-        L('a', 1, 'Compra', { tipoItemId: 'TIP-1', tipoItem: 'Material', descripcion: 'Lavamanos loza blanco (Sodimac)', cantidad: 1, costoUnit: 45000, recargoPct: 10, monto: 49500 }),
-        L('b', 2, 'Compra', { tipoItemId: 'TIP-1', tipoItem: 'Material', descripcion: 'Lavamanos Fanaloza (Easy)', cantidad: 1, costoUnit: 62000, recargoPct: 10, monto: 68200, incluida: false }),
-        L('c', 3, 'Compra', { tipoItemId: 'TIP-2', tipoItem: 'Insumo', descripcion: 'Sifón + flexibles', cantidad: 1, costoUnit: 8900, recargoPct: 10, monto: 9790 }),
-        L('d', 4, 'Compra', { tipoItemId: 'TIP-4', tipoItem: 'Flete / transporte', descripcion: 'Flete', cantidad: 1, costoUnit: 6000, recargoPct: 10, monto: 6600 }),
+        L('a', 1, 'Compra', { tipoItemId: 'TIP-1', tipoItem: 'Material', descripcion: 'Lavamanos loza blanco (Sodimac)', cantidad: 1, costoUnit: 45000, recargoPct: 0, monto: 45000 }),
+        L('b', 2, 'Compra', { tipoItemId: 'TIP-1', tipoItem: 'Material', descripcion: 'Lavamanos Fanaloza (Easy)', cantidad: 1, costoUnit: 62000, recargoPct: 0, monto: 62000, incluida: false }),
+        L('c', 3, 'Compra', { tipoItemId: 'TIP-2', tipoItem: 'Insumo', descripcion: 'Sifón + flexibles', cantidad: 1, costoUnit: 8900, recargoPct: 0, monto: 8900 }),
+        L('d', 4, 'Compra', { tipoItemId: 'TIP-4', tipoItem: 'Flete / transporte', descripcion: 'Flete', cantidad: 1, costoUnit: 6000, recargoPct: 0, monto: 6000 }),
         L('e', 5, 'Tiempo de gestión', { categoriaId: 'CAT-1', categoria: 'Gestión de compras', descripcion: 'Cotizar en 2 ferreterías', horas: 1, hh: 10000, factor: 1, monto: 10000 }),
         L('f', 6, 'Tiempo de gestión', { categoriaId: 'CAT-1', categoria: 'Gestión de compras', descripcion: 'Compra y retiro', horas: 1.5, hh: 10000, factor: 1, monto: 15000 }),
-        L('g', 7, 'Mano de obra', { categoriaId: 'CAT-6', categoria: 'Gasfitería', descripcion: 'Desinstalación de lavamanos', horas: 1, hh: 10000, factor: 1.5, monto: 15000 }),
-        L('h', 8, 'Mano de obra', { categoriaId: 'CAT-6', categoria: 'Gasfitería', descripcion: 'Instalación de lavamanos y conexiones', horas: 1.5, hh: 10000, factor: 1.5, monto: 22500 })
+        L('g', 7, 'Mano de obra', { categoriaId: 'CAT-6', categoria: 'Gasfitería', descripcion: 'Desinstalación de lavamanos', horas: 1, hh: 15000, factor: 1, monto: 15000 }),
+        L('h', 8, 'Mano de obra', { categoriaId: 'CAT-6', categoria: 'Gasfitería', descripcion: 'Instalación de lavamanos y conexiones', horas: 1.5, hh: 15000, factor: 1, monto: 22500 })
       ]
     };
   }
@@ -96,9 +97,9 @@ const Demo = (() => {
     saveCategoria: ({ item }) => {
       const d = load();
       if (!String(item.nombre || '').trim()) throw new Error('La categoría necesita un nombre');
-      if (!(num(item.factor) > 0)) throw new Error('El factor debe ser mayor que 0');
+      if (!(num(item.valorHora) > 0)) throw new Error('El valor hora de "' + item.nombre + '" debe ser mayor que 0');
       const prev = d.categorias.find(c => c.id === item.id);
-      const o = { id: item.id || nextId('CAT', d.categorias), nombre: item.nombre.trim(), factor: num(item.factor), orden: item.orden || d.categorias.length + 1, activa: item.activa !== false, uso: prev && prev.uso ? prev.uso : 'Oficio' };
+      const o = { id: item.id || nextId('CAT', d.categorias), nombre: item.nombre.trim(), factor: 1, valorHora: Math.round(num(item.valorHora)), orden: item.orden || d.categorias.length + 1, activa: item.activa !== false, uso: prev && prev.uso ? prev.uso : 'Oficio' };
       if (o.uso === 'Gestión' && !o.activa) throw new Error('La categoría de gestión de compras no se puede desactivar');
       upsert(d.categorias, 'id', o);
       return { item: clone(o) };
@@ -158,7 +159,10 @@ const Demo = (() => {
         r.nOT = nOT; r.fecha = l.fecha || hoy();
         return r;
       });
-      const neto = ls.reduce((s, l) => s + (l.incluida ? l.monto : 0), 0);
+      const subtotal = ls.reduce((s, l) => s + (l.incluida ? l.monto : 0), 0);
+      const recargoPct = previa && previa.recargoPct !== '' && previa.recargoPct != null ? num(previa.recargoPct) : num(d.config.RECARGO_MATERIALES_PCT);
+      const recargo = Math.round(subtotal * recargoPct / 100);
+      const neto = subtotal + recargo;
       const ivaPct = previa && previa.ivaPct !== '' ? num(previa.ivaPct) : num(d.config.IVA_PCT);
       const iva = Math.round(neto * ivaPct / 100);
       const o = {
@@ -167,7 +171,7 @@ const Demo = (() => {
         ubicacionId: ubi ? ubi.id : '', ubicacion: ubi ? ubi.edificio + (ubi.detalle ? ' — ' + ubi.detalle : '') : '',
         titulo: ot.titulo.trim(), descripcion: ot.descripcion || '', estado: ot.estado || 'Pendiente',
         nOC: previa ? previa.nOC : '', folioSII: previa ? previa.folioSII : '',
-        neto, ivaPct, iva, total: neto + iva, notas: ot.notas || '',
+        neto, ivaPct, iva, total: neto + iva, notas: ot.notas || '', subtotal, recargoPct, recargo,
         creada: previa ? previa.creada : ahora(), actualizada: ahora(),
         detallar: String(ot.detallar || '').split(',').filter(x => d.tiposItem.some(t => t.id === x)).join(',')
       };

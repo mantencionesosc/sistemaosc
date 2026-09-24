@@ -47,7 +47,7 @@ const Calc = {
       o.tipoItemId = t.id; o.tipoItem = t.nombre;
       o.cantidad = cant;
       o.costoUnit = Calc.num(l.costoUnit);
-      o.recargoPct = Calc.vacio(l.recargoPct) ? Calc.num(cfg.RECARGO_MATERIALES_PCT) : Calc.num(l.recargoPct);
+      o.recargoPct = 0;  // desde v2.1 los ítems van al costo; el recargo se aplica sobre el neto de la OT
       o.monto = Calc.montoLinea(o);
       return o;
     }
@@ -65,20 +65,23 @@ const Calc = {
     if (Math.round(horas * 2) !== horas * 2) throw new Error(n + ': las horas van de media en media (1; 1,5; 2…)');
     o.categoriaId = cat.id; o.categoria = cat.nombre;
     o.horas = horas;
-    o.hh = Calc.vacio(l.hh) ? Calc.num(cfg.HH_BASE) : Calc.num(l.hh);
-    o.factor = Calc.vacio(l.factor) ? Calc.num(cat.factor) : Calc.num(l.factor);
+    o.hh = Calc.vacio(l.hh) ? Calc.num(cat.valorHora) : Calc.num(l.hh);   // valor hora congelado
+    o.factor = Calc.vacio(l.factor) ? 1 : Calc.num(l.factor);
     o.monto = Calc.montoLinea(o);
     return o;
   },
   montoLinea(l) {
     if (Calc.tipoDe(l) === 'Compra') return Math.round(Calc.num(l.cantidad) * Calc.num(l.costoUnit) * (1 + Calc.num(l.recargoPct) / 100));
-    return Math.round(Calc.num(l.horas) * Calc.num(l.hh) * Calc.num(l.factor));
+    return Math.round(Calc.num(l.horas) * Calc.num(l.hh) * (Calc.vacio(l.factor) ? 1 : Calc.num(l.factor)));
   },
   subtotal: lineas => lineas.reduce((s, l) => s + (l.incluida !== false ? Calc.montoLinea(l) : 0), 0),
-  totales(lineas, ivaPct) {
-    const neto = Calc.subtotal(lineas);
+  // subtotal (costo) + recargo general = neto; + IVA = total
+  totales(lineas, ivaPct, recargoPct = 0) {
+    const subtotal = Calc.subtotal(lineas);
+    const recargo = Math.round(subtotal * Calc.num(recargoPct) / 100);
+    const neto = subtotal + recargo;
     const iva = Math.round(neto * Calc.num(ivaPct) / 100);
-    return { neto, iva, total: neto + iva };
+    return { subtotal, recargoPct: Calc.num(recargoPct), recargo, neto, iva, total: neto + iva };
   }
 };
 
@@ -220,10 +223,10 @@ function renderOTs(app) {
   else if (FILTRO !== 'todas') lista = lista.filter(o => o.estado === FILTRO);
   if (q) lista = lista.filter(o => norm([otNum(o.nOT), o.nOT, o.titulo, o.ubicacion, o.solicitante, o.cliente, o.nOC, o.folioSII].join(' ')).includes(q));
 
-  const sinHH = !(Calc.num(S.config.HH_BASE) > 0) && (SYNCED || DEMO);
+  const sinHH = S.categorias.some(c => c.activa !== false && !(Calc.num(c.valorHora) > 0)) && (SYNCED || DEMO);
   app.innerHTML = `
     ${noConectado()}
-    ${sinHH ? `<div class="warn-banner">⚠ Falta configurar el <b>valor HH</b>. Sin él, la mano de obra sale en $0. <a href="#/config">Ir a Config →</a></div>` : ''}
+    ${sinHH ? `<div class="warn-banner">⚠ Hay categorías sin <b>valor hora</b>. Sus líneas salen en $0. <a href="#/config">Ir a Config →</a></div>` : ''}
     <input class="search" type="search" id="busq" placeholder="Buscar OT, título, edificio, solicitante…" value="${esc(BUSQ)}">
     <div class="chips">${filtros.map(([k, t]) => `<button class="chip ${FILTRO === k ? 'on' : ''}" data-f="${k}">${t}</button>`).join('')}</div>
     <div id="ot-list" style="padding-bottom:64px">${lista.length ? lista.map(itemOT).join('') : `<div class="empty"><span class="big">📋</span>${S.ots.length ? 'No hay OT con este filtro.' : 'Aún no hay órdenes de trabajo.<br>Crea la primera con el botón de abajo.'}</div>`}</div>
@@ -330,6 +333,8 @@ function renderEditor(param) {
       ${ro ? '' : `<button class="btn btn-primary btn-full" style="margin-top:12px" id="add-mo">＋ Mano de obra</button>`}
     </div>
 
+    <div class="card"><h2>🧮 Resumen</h2><div id="ed-resumen"></div></div>
+
     <div class="card" id="fotos-card"></div>
     <div class="card" id="cot-card"></div>
 
@@ -404,7 +409,7 @@ function htmlLinea(l, i) {
   const compra = tipo === 'Compra';
   const calc = compra
     ? `${dec(l.cantidad)} × ${clp(l.costoUnit)}${Calc.num(l.recargoPct) ? ' + ' + dec(l.recargoPct) + '%' : ''}`
-    : `${dec(l.horas)} h × ${clp(l.hh)} × ${dec(l.factor)}`;
+    : `${dec(l.horas)} h × ${clp(l.hh)}${Calc.vacio(l.factor) || Calc.num(l.factor) === 1 ? '' : ' × ' + dec(l.factor)}`;
   const etiqueta = compra ? (l.tipoItem || 'Ítem') : tipo === 'Tiempo de gestión' ? 'Tiempo de gestión' : l.categoria;
   const icono = compra ? '📦' : tipo === 'Tiempo de gestión' ? '⏱' : iconoCat(l.categoria);
   const excl = l.incluida === false ? `<span class="tag-excl">${compra ? 'Descartado' : 'No incluida'}</span>` : '';
@@ -426,10 +431,19 @@ function marcar() {
   const b = $('#ed-save'); if (b) b.disabled = false;
 }
 
+const pctOT = (o, campo, clave) => Calc.vacio(o[campo]) ? Calc.num(S.config[clave]) : Calc.num(o[campo]);
+const totalesED = () => Calc.totales(ED.lineas, pctOT(ED.ot, 'ivaPct', 'IVA_PCT'), pctOT(ED.ot, 'recargoPct', 'RECARGO_MATERIALES_PCT'));
+
 function pintarTotales() {
-  const ivaPct = Calc.vacio(ED.ot.ivaPct) ? S.config.IVA_PCT : ED.ot.ivaPct;
-  const t = Calc.totales(ED.lineas, ivaPct);
+  const t = totalesED();
   $('#ed-tot').innerHTML = `Neto ${clp(t.neto)} · IVA ${clp(t.iva)}<br><b>Total ${clp(t.total)}</b>`;
+  const r = $('#ed-resumen');
+  if (r) r.innerHTML = `
+    <div class="res-row"><span>Subtotal (costo)</span><span>${clp(t.subtotal)}</span></div>
+    <div class="res-row"><span>Recargo ${dec(t.recargoPct)}% <small>(no se muestra al cliente)</small></span><span>${clp(t.recargo)}</span></div>
+    <div class="res-row fuerte"><span>Neto</span><span>${clp(t.neto)}</span></div>
+    <div class="res-row"><span>IVA ${dec(pctOT(ED.ot, 'ivaPct', 'IVA_PCT'))}%</span><span>${clp(t.iva)}</span></div>
+    <div class="res-row total"><span>Total</span><span>${clp(t.total)}</span></div>`;
 }
 
 async function guardarOT() {
@@ -469,9 +483,8 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
   const gestion = Calc.catGestion(S.categorias);
   // Valores congelados al crear la línea
   if (nueva) {
-    l.hh = Calc.num(S.config.HH_BASE);
-    l.recargoPct = Calc.num(S.config.RECARGO_MATERIALES_PCT);
-    if (l.tipo === 'Tiempo de gestión' && gestion) { l.categoriaId = gestion.id; l.categoria = gestion.nombre; l.factor = Calc.num(gestion.factor); }
+    l.hh = ''; l.factor = 1; l.recargoPct = 0;
+    if (l.tipo === 'Tiempo de gestión' && gestion) { l.categoriaId = gestion.id; l.categoria = gestion.nombre; l.hh = Calc.num(gestion.valorHora); }
     if (l.tipo === 'Compra') { const t = tiposActivos()[0]; if (t) { l.tipoItemId = t.id; l.tipoItem = t.nombre; } }
   }
   const compra = l.tipo === 'Compra', tiempo = l.tipo === 'Tiempo de gestión';
@@ -483,8 +496,8 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
     const catActual = S.categorias.find(c => c.id === l.categoriaId);
     const oficios = catsActivas().filter(c => c.uso !== 'Gestión');
     const catsLista = catActual && catActual.activa === false && catActual.uso !== 'Gestión' ? oficios.concat([catActual]) : oficios;
-    const hhCfg = Calc.num(S.config.HH_BASE);
-    const difiere = !compra && !nueva && catActual && (Calc.num(l.hh) !== hhCfg || Calc.num(l.factor) !== Calc.num(catActual.factor));
+    const vhActual = catActual ? Calc.num(catActual.valorHora) : 0;
+    const difiere = !compra && !nueva && catActual && Calc.num(Calc.montoLinea(Object.assign({}, l, { horas: 1 }))) !== vhActual;
     const tipos = tiposActivos();
     const tipoActual = S.tiposItem.find(t => t.id === l.tipoItemId);
     const tiposLista = tipoActual && tipoActual.activo === false ? tipos.concat([tipoActual]) : tipos;
@@ -492,9 +505,9 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
       <h3>${nueva ? titulo : titulo + ' · editar'}<button class="x" data-cerrar aria-label="Cerrar">✕</button></h3>
       ${compra ? `<label for="l-tipoitem">Tipo de ítem</label>
         <select id="l-tipoitem" ${ro ? 'disabled' : ''}>${tiposLista.map(t => `<option value="${esc(t.id)}" ${t.id === l.tipoItemId ? 'selected' : ''}>${esc(t.nombre)}</option>`).join('')}</select>` : ''}
-      ${tiempo ? `<p class="hint" style="margin:0 0 4px">🛒 ${esc(gestion ? gestion.nombre : 'Gestión de compras')} · factor ${dec(l.factor)}</p>` : ''}
+      ${tiempo ? `<p class="hint" style="margin:0 0 4px">🛒 ${esc(gestion ? gestion.nombre : 'Gestión de compras')} · ${clp(l.hh)} por hora</p>` : ''}
       ${l.tipo === 'Mano de obra' ? `<label>Categoría</label>
-        <div class="cat-grid" id="l-cats">${catsLista.map(c => `<button type="button" class="cat-btn ${c.id === l.categoriaId ? 'on' : ''}" data-id="${esc(c.id)}" ${ro ? 'disabled' : ''}>${iconoCat(c.nombre)} ${esc(c.nombre)}<small>factor ${dec(c.factor)}</small></button>`).join('')}</div>` : ''}
+        <div class="cat-grid" id="l-cats">${catsLista.map(c => `<button type="button" class="cat-btn ${c.id === l.categoriaId ? 'on' : ''}" data-id="${esc(c.id)}" ${ro ? 'disabled' : ''}>${iconoCat(c.nombre)} ${esc(c.nombre)}<small>${clp(c.valorHora)} / h</small></button>`).join('')}</div>` : ''}
       <label for="l-desc">${compra ? '¿Qué se compró o cotizó?' : tiempo ? '¿Qué gestión se hizo?' : '¿Qué se hizo?'}</label>
       <textarea id="l-desc" placeholder="${compra ? 'Ej: Lavamanos loza blanco (Sodimac)' : tiempo ? 'Ej: Cotizar en 2 ferreterías' : 'Ej: Desinstalación de lavamanos'}" ${ro ? 'readonly' : ''}>${esc(l.descripcion)}</textarea>
       ${!compra ? `<label for="l-horas">Horas (mínimo 1, de media en media)</label>
@@ -507,14 +520,13 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
           <div><label for="l-cant">Cantidad</label><input id="l-cant" inputmode="decimal" value="${dec(l.cantidad)}" ${ro ? 'readonly' : ''}></div>
           <div><label for="l-costo">Costo unitario $</label><input id="l-costo" inputmode="numeric" placeholder="0" value="${l.costoUnit === '' ? '' : Math.round(Calc.num(l.costoUnit)).toLocaleString('es-CL')}" ${ro ? 'readonly' : ''}></div>
         </div>
-        <label for="l-rec">Recargo %</label>
-        <input id="l-rec" inputmode="decimal" value="${dec(l.recargoPct)}" ${ro ? 'readonly' : ''}>`}
+`}
       <label for="l-fecha">Fecha</label>
       <input type="date" id="l-fecha" value="${esc(String(l.fecha || '').slice(0, 10))}" ${ro ? 'readonly' : ''}>
       <label class="check"><input type="checkbox" id="l-incl" ${l.incluida !== false ? 'checked' : ''} ${ro ? 'disabled' : ''}> ${compra ? 'Elegido (se cobra)' : 'Incluir en la cotización'}</label>
       ${compra ? `<p class="hint" style="margin-top:4px">Desmárcalo si es una alternativa descartada: queda anotada pero no suma.</p>` : ''}
       <div class="preview"><div class="calc" id="l-calc"></div><div class="monto" id="l-monto"></div></div>
-      ${difiere && !ro ? `<div class="congelado">Esta línea usa los valores de cuando se creó: HH ${clp(l.hh)} y factor ${dec(l.factor)}. Config actual: HH ${clp(hhCfg)}, factor ${dec(catActual.factor)}. <button type="button" id="l-actualizar">Usar valores actuales</button></div>` : ''}
+      ${difiere && !ro ? `<div class="congelado">Esta línea usa el valor hora de cuando se creó (${clp(Calc.montoLinea(Object.assign({}, l, { horas: 1 })))}). Valor actual de ${esc(catActual.nombre)}: ${clp(vhActual)}. <button type="button" id="l-actualizar">Usar valor actual</button></div>` : ''}
       ${ro ? '' : `<div class="btn-row">
         ${nueva ? '' : '<button class="btn btn-danger" id="l-del">Eliminar</button>'}
         <button class="btn btn-primary" id="l-ok">${nueva ? 'Agregar' : 'Listo'}</button>
@@ -527,8 +539,8 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
 
   function preview() {
     $('#l-calc').textContent = compra
-      ? `${dec(l.cantidad)} × ${clp(l.costoUnit)}${Calc.num(l.recargoPct) ? ' + ' + dec(l.recargoPct) + '%' : ''}`
-      : `${dec(l.horas)} h × ${clp(l.hh)} × ${l.factor === '' ? '—' : dec(l.factor)}`;
+      ? `${dec(l.cantidad)} × ${clp(l.costoUnit)}`
+      : `${dec(l.horas)} h × ${Calc.vacio(l.hh) ? '—' : clp(Calc.montoLinea(Object.assign({}, l, { horas: 1 })))}`;
     $('#l-monto').textContent = clp(Calc.montoLinea(l));
   }
 
@@ -542,7 +554,7 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
     m.querySelectorAll('#l-cats .cat-btn').forEach(b => b.onclick = () => {
       guardarDesc();
       const c = S.categorias.find(x => x.id === b.dataset.id);
-      l.categoriaId = c.id; l.categoria = c.nombre; l.factor = Calc.num(c.factor);
+      l.categoriaId = c.id; l.categoria = c.nombre; l.hh = Calc.num(c.valorHora); l.factor = 1;
       montar();
     });
     $('#l-fecha').addEventListener('change', e => { l.fecha = e.target.value; });
@@ -558,7 +570,7 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
       if (act) act.onclick = () => {
         guardarDesc();
         const c = S.categorias.find(x => x.id === l.categoriaId);
-        l.hh = Calc.num(S.config.HH_BASE); l.factor = Calc.num(c.factor); montar();
+        l.hh = Calc.num(c.valorHora); l.factor = 1; montar();
       };
     } else {
       $('#l-tipoitem').addEventListener('change', e => {
@@ -573,12 +585,11 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
         co.value = d === '' ? '' : Number(d).toLocaleString('es-CL');
         preview();
       });
-      $('#l-rec').addEventListener('input', e => { l.recargoPct = Calc.num(e.target.value); preview(); });
     }
     $('#l-ok').onclick = () => {
       guardarDesc();
       if (compra && l.costoUnit === '') l.costoUnit = 0;
-      if (!compra && Calc.vacio(l.hh)) l.hh = Calc.num(S.config.HH_BASE);
+      if (!compra && Calc.vacio(l.hh)) { const c = S.categorias.find(x => x.id === l.categoriaId); if (c) l.hh = Calc.num(c.valorHora); }
       try {
         Calc.normalizarLinea(l, nueva ? ED.lineas.length : i, S.config, S.categorias, S.tiposItem);
       } catch (e) { const msg = e.message.replace(/^La línea \d+:? ?/, ''); toast(msg.charAt(0).toUpperCase() + msg.slice(1), 'err'); return; }
@@ -791,8 +802,8 @@ async function armarPDF(version, opciones) {
   await cargarScript('lib/jspdf.umd.min.js');
   const o = ED.ot;
   const [logo, fotos] = await Promise.all([dataUrlDe('img/logo-pdf.png').catch(() => null), cargarFotos(o.nOT).catch(() => [])]);
-  const ivaPct = Calc.vacio(o.ivaPct) ? Calc.num(S.config.IVA_PCT) : Calc.num(o.ivaPct);
-  const totales = Object.assign(Calc.totales(ED.lineas, ivaPct), { ivaPct });
+  const ivaPct = pctOT(o, 'ivaPct', 'IVA_PCT');
+  const totales = Object.assign(totalesED(), { ivaPct });
   const doc = Cotizacion.generar({
     ot: o, lineas: ED.lineas.map(l => Object.assign({}, l, { tipo: Calc.tipoDe(l) })), cfg: S.config,
     cliente: S.clientes.find(c => c.id === o.clienteId) || {},
@@ -970,7 +981,6 @@ function renderCliente(app, idParam) {
 function renderConfig(app) {
   const cfg = S.config;
   const conectado = DEMO || (API_URL && TOKEN);
-  const hh = Calc.num(cfg.HH_BASE);
   const cats = S.categorias.slice().sort((a, b) => (b.uso === 'Gestión') - (a.uso === 'Gestión') || Calc.num(a.orden) - Calc.num(b.orden));
   const tipos = S.tiposItem.slice().sort((a, b) => Calc.num(a.orden) - Calc.num(b.orden));
   const emp = [['EMPRESA_NOMBRE', 'Nombre de fantasía'], ['EMPRESA_RAZON_SOCIAL', 'Razón social'], ['EMPRESA_RUT', 'RUT'], ['EMPRESA_GIRO', 'Giro'], ['EMPRESA_DIRECCION', 'Dirección'], ['EMPRESA_TELEFONO', 'Teléfono'], ['EMPRESA_CORREO', 'Correo'], ['EMPRESA_FIRMA', 'Nombre para la firma']];
@@ -993,26 +1003,23 @@ function renderConfig(app) {
     ${conectado ? `
     <div class="card">
       <h2>💲 Valores de cobro</h2>
-      <label for="v-hh">Valor HH base (neto)</label>
-      <input id="v-hh" inputmode="numeric" value="${hh ? hh.toLocaleString('es-CL') : ''}" placeholder="Ej: 10.000">
       <div class="row">
+        <div><label for="v-rec">Recargo general %</label><input id="v-rec" inputmode="decimal" value="${dec(cfg.RECARGO_MATERIALES_PCT ?? 30)}"></div>
         <div><label for="v-iva">IVA %</label><input id="v-iva" inputmode="decimal" value="${dec(cfg.IVA_PCT ?? 19)}"></div>
-        <div><label for="v-rec">Recargo compras %</label><input id="v-rec" inputmode="decimal" value="${dec(cfg.RECARGO_MATERIALES_PCT ?? 0)}"></div>
       </div>
-      <p class="hint">Mano de obra = horas × HH base × factor de la categoría. Ítems de compra = cantidad × costo × (1 + recargo). Las líneas ya creadas conservan sus valores.</p>
+      <p class="hint">Horas = horas × valor hora de la categoría. Ítems de compra al costo. El <b>recargo general</b> se aplica sobre el neto de cada OT y en la cotización se reparte en los montos (la jefa no lo ve). Cada OT conserva el % con que se creó.</p>
       <button class="btn btn-primary btn-full" style="margin-top:14px" id="v-ok">Guardar valores</button>
     </div>
 
     <div class="card">
-      <h2>🏷 Categorías y factores</h2>
-      <div class="cat-head"><span>Categoría</span><span>Factor</span><span>Activa</span></div>
+      <h2>🏷 Categorías y valor hora</h2>
+      <div class="cat-head"><span>Categoría</span><span>Valor hora</span><span>Activa</span></div>
       <div id="cats">${cats.map(c => `
         <div class="cat-row" data-id="${esc(c.id)}">
           <input class="c-nom" value="${esc(c.nombre)}">
-          <input class="c-fac" inputmode="decimal" value="${dec(c.factor)}">
+          <input class="c-vh" inputmode="numeric" value="${Calc.num(c.valorHora) ? Calc.num(c.valorHora).toLocaleString('es-CL') : ''}" placeholder="$">
           <input class="c-act" type="checkbox" ${c.activa !== false ? 'checked' : ''} ${c.uso === 'Gestión' ? 'disabled title="Siempre activa"' : ''}>
-          ${c.uso === 'Gestión' ? '<div class="uso">🛒 Factor del tiempo de gestión de compras</div>' : ''}
-          <div class="ejemplo">1 h = ${clp(hh * Calc.num(c.factor))}</div>
+          ${c.uso === 'Gestión' ? '<div class="uso">🛒 Valor hora del tiempo de gestión de compras</div>' : ''}
         </div>`).join('')}</div>
       <button class="btn btn-sec btn-sm" id="cat-add">＋ Agregar categoría</button>
       <button class="btn btn-primary btn-full" style="margin-top:14px" id="cat-ok">Guardar categorías</button>
@@ -1048,7 +1055,7 @@ function renderConfig(app) {
       <button class="btn btn-primary btn-full" style="margin-top:14px" id="q-ok">Guardar</button>
     </div>` : ''}
 
-    <p class="hint" style="text-align:center;margin:18px 0">Mantenciones OSC · versión 2.0</p>`;
+    <p class="hint" style="text-align:center;margin:18px 0">Mantenciones OSC · versión 2.1</p>`;
 
   $('#k-ok').onclick = async () => {
     const url = $('#k-url').value.trim(), tok = $('#k-token').value.trim();
@@ -1083,10 +1090,12 @@ function renderConfig(app) {
   if (rs) rs.onclick = async () => { if (!confirm('¿Borrar los datos de la demo y volver a los de ejemplo?')) return; Demo.reset(); await sync(true); render(); };
   if (!conectado) return;
 
-  const hhIn = $('#v-hh');
-  hhIn.addEventListener('input', () => { const d = soloDigitos(hhIn.value); hhIn.value = d ? Number(d).toLocaleString('es-CL') : ''; });
+  $('#cats').addEventListener('input', e => {
+    if (!e.target.classList.contains('c-vh')) return;
+    const d = soloDigitos(e.target.value); e.target.value = d ? Number(d).toLocaleString('es-CL') : '';
+  });
   $('#v-ok').onclick = async () => {
-    const values = { HH_BASE: Number(soloDigitos(hhIn.value) || 0), IVA_PCT: Calc.num($('#v-iva').value), RECARGO_MATERIALES_PCT: Calc.num($('#v-rec').value) };
+    const values = { IVA_PCT: Calc.num($('#v-iva').value), RECARGO_MATERIALES_PCT: Calc.num($('#v-rec').value) };
     if (values.IVA_PCT < 0 || values.RECARGO_MATERIALES_PCT < 0) { toast('Los porcentajes no pueden ser negativos', 'err'); return; }
     await guardarConfig(values);
   };
@@ -1102,19 +1111,19 @@ function renderConfig(app) {
   $('#cat-add').onclick = () => {
     const div = document.createElement('div');
     div.className = 'cat-row'; div.dataset.id = '';
-    div.innerHTML = `<input class="c-nom" placeholder="Nombre"><input class="c-fac" inputmode="decimal" value="1"><input class="c-act" type="checkbox" checked>`;
+    div.innerHTML = `<input class="c-nom" placeholder="Nombre"><input class="c-vh" inputmode="numeric" placeholder="$"><input class="c-act" type="checkbox" checked>`;
     $('#cats').appendChild(div); div.querySelector('.c-nom').focus();
   };
   $('#cat-ok').onclick = async () => {
     const filas = [...document.querySelectorAll('#cats .cat-row')];
     const cambios = [];
     for (const [idx, f] of filas.entries()) {
-      const item = { id: f.dataset.id, nombre: f.querySelector('.c-nom').value.trim(), factor: Calc.num(f.querySelector('.c-fac').value), activa: f.querySelector('.c-act').checked, orden: idx + 1 };
+      const item = { id: f.dataset.id, nombre: f.querySelector('.c-nom').value.trim(), valorHora: Number(soloDigitos(f.querySelector('.c-vh').value) || 0), activa: f.querySelector('.c-act').checked, orden: idx + 1 };
       if (!item.id && !item.nombre) continue;
       if (!item.nombre) { toast('Hay una categoría sin nombre', 'err'); return; }
-      if (!(item.factor > 0)) { toast('El factor de "' + item.nombre + '" debe ser mayor que 0', 'err'); return; }
+      if (!(item.valorHora > 0)) { toast('Falta el valor hora de "' + item.nombre + '"', 'err'); return; }
       const prev = S.categorias.find(c => c.id === item.id);
-      if (!prev || prev.nombre !== item.nombre || Calc.num(prev.factor) !== item.factor || (prev.activa !== false) !== item.activa || Calc.num(prev.orden) !== item.orden) cambios.push(item);
+      if (!prev || prev.nombre !== item.nombre || Calc.num(prev.valorHora) !== item.valorHora || (prev.activa !== false) !== item.activa || Calc.num(prev.orden) !== item.orden) cambios.push(item);
     }
     if (!cambios.length) { toast('No hay cambios', 'ok', 1200); return; }
     const btn = $('#cat-ok'); btn.disabled = true; toast('Guardando categorías…');
