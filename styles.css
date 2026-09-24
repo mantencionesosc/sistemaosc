@@ -291,3 +291,6 @@ label.btn-sec { color: var(--cafe); }
 .res-row small { color: var(--gris); font-size: 12px; }
 .res-row.fuerte { font-weight: 700; }
 .res-row.total { border-bottom: 0; font-weight: 800; font-size: 18px; color: var(--terra); padding-top: 10px; }
+.sub-opts { margin: 0 0 4px 32px; }
+.sub-opts .check { margin-top: 8px; font-size: 14px; font-weight: 500; }
+hr.sep { border: 0; border-top: 1px solid var(--linea); margin: 14px 0 0; }

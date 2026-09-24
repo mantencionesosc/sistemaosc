@@ -16,7 +16,7 @@ let DEMO = LS.get('osc_demo') === '1';
 const S = { config: {}, categorias: [], tiposItem: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [] };
 const FOTOS = {};   // nOT -> [{...foto, data}] (se cargan al abrir la OT)
 let SYNCED = false;
-const APP_VERSION = '2.1.2';
+const APP_VERSION = '2.2';
 let API_VERSION = '';
 
 // ════════════════════════════════════════════════════════ CÁLCULO (compartido con demo.js)
@@ -302,18 +302,13 @@ function renderEditor(param) {
     ${ro ? `<div class="readonly-banner">🧾 Facturada con folio <b>${esc(o.folioSII)}</b>. Solo lectura.</div>` : ''}
 
     <div class="card">
-      <label for="f-titulo">¿Qué pidió el cliente?</label>
-      <input id="f-titulo" placeholder="Ej: Cambio de lavamanos" value="${esc(o.titulo)}" ${ro ? 'readonly' : ''}>
+      <h2>👤 Cliente</h2>
+      <label for="f-fecha">Fecha</label>
+      <input type="date" id="f-fecha" value="${esc(String(o.fechaInicio || '').slice(0, 10))}" ${ro ? 'readonly' : ''}>
 
-      <label>Estado del trabajo</label>
-      <div class="seg" id="f-estado">${ESTADOS.map(e => `<button type="button" data-v="${e}" class="${o.estado === e ? 'on' : ''}" ${ro ? 'disabled' : ''}>${e}</button>`).join('')}</div>
-
-      <div class="row">
-        <div><label for="f-fecha">Fecha inicio</label><input type="date" id="f-fecha" value="${esc(String(o.fechaInicio || '').slice(0, 10))}" ${ro ? 'readonly' : ''}></div>
-        ${cls.length > 1 || !o.clienteId ? `<div><label for="f-cliente">Cliente</label>
-          <select id="f-cliente" ${ro ? 'disabled' : ''}><option value="">Seleccionar…</option>${cls.map(c => `<option value="${esc(c.id)}" ${c.id === o.clienteId ? 'selected' : ''}>${esc(c.nombreCorto || c.razonSocial)}</option>`).join('')}</select></div>`
-        : `<div><label>Cliente</label><input readonly value="${esc((cls.find(c => c.id === o.clienteId) || {}).nombreCorto || (cls[0] || {}).razonSocial || '')}"></div>`}
-      </div>
+      ${cls.length > 1 || !o.clienteId ? `<label for="f-cliente">Cliente</label>
+        <select id="f-cliente" ${ro ? 'disabled' : ''}><option value="">Seleccionar…</option>${cls.map(c => `<option value="${esc(c.id)}" ${c.id === o.clienteId ? 'selected' : ''}>${esc(c.nombreCorto || c.razonSocial)}</option>`).join('')}</select>`
+      : `<label>Cliente</label><input readonly value="${esc((cls.find(c => c.id === o.clienteId) || {}).razonSocial || (cls[0] || {}).razonSocial || '')}">`}
 
       <label for="f-sol">Solicitante</label>
       <div class="select-add">
@@ -326,9 +321,18 @@ function renderEditor(param) {
         <select id="f-ubi" ${ro || !o.clienteId ? 'disabled' : ''}><option value="">—</option>${ubis.map(u => `<option value="${esc(u.id)}" ${u.id === o.ubicacionId ? 'selected' : ''}>${esc(u.edificio)}${u.detalle ? ' — ' + esc(u.detalle) : ''}</option>`).join('')}</select>
         ${ro ? '' : `<button class="btn btn-sec" id="add-ubi" type="button" title="Nueva ubicación" ${!o.clienteId ? 'disabled' : ''}>＋</button>`}
       </div>
+    </div>
+
+    <div class="card">
+      <h2>📝 Trabajo</h2>
+      <label for="f-titulo">¿Qué pidió el cliente?</label>
+      <input id="f-titulo" placeholder="Ej: Cambio de lavamanos" value="${esc(o.titulo)}" ${ro ? 'readonly' : ''}>
 
       <label for="f-desc">Detalle del pedido</label>
-      <textarea id="f-desc" placeholder="Lo que pidió el cliente, con el detalle que haga falta" ${ro ? 'readonly' : ''}>${esc(o.descripcion)}</textarea>
+      <textarea id="f-desc" placeholder="Ej: Desinstalación e instalación de lavamanos en baño del segundo piso" ${ro ? 'readonly' : ''}>${esc(o.descripcion)}</textarea>
+
+      <label>Estado del trabajo</label>
+      <div class="seg" id="f-estado">${ESTADOS.map(e => `<button type="button" data-v="${e}" class="${o.estado === e ? 'on' : ''}" ${ro ? 'disabled' : ''}>${e}</button>`).join('')}</div>
     </div>
 
     ${bloqueCompras(ro)}
@@ -377,11 +381,6 @@ function renderEditor(param) {
   $('#add-mo').onclick = () => abrirLinea(-1, false, 'Mano de obra');
   $('#add-compra').onclick = () => abrirLinea(-1, false, 'Compra');
   $('#add-tiempo').onclick = () => abrirLinea(-1, false, 'Tiempo de gestión');
-  app.querySelectorAll('[data-det]').forEach(cb => cb.addEventListener('change', () => {
-    const set = new Set(String(o.detallar || '').split(',').filter(Boolean));
-    if (cb.checked) set.add(cb.dataset.det); else set.delete(cb.dataset.det);
-    o.detallar = [...set].join(','); marcar();
-  }));
   app.querySelectorAll('.linea').forEach(el => el.onclick = () => abrirLinea(+el.dataset.i));
   $('#ed-save').onclick = guardarOT;
 }
@@ -392,8 +391,6 @@ const grupo = tipo => ED.lineas.map((l, i) => [l, i]).filter(([l]) => Calc.tipoD
 function bloqueCompras(ro) {
   const compras = grupo('Compra'), tiempos = grupo('Tiempo de gestión');
   const sub = Calc.subtotal(compras.concat(tiempos).map(x => x[0]));
-  const presentes = [...new Map(compras.map(([l]) => [l.tipoItemId, l.tipoItem || (S.tiposItem.find(t => t.id === l.tipoItemId) || {}).nombre])).entries()].filter(([id]) => id);
-  const det = new Set(String(ED.ot.detallar || '').split(',').filter(Boolean));
   return `<div class="card">
     <h2>🛒 Gestión de compras <span class="extra">${clp(sub)}</span></h2>
     <div class="sub-h">Ítems comprados o cotizados</div>
@@ -402,11 +399,6 @@ function bloqueCompras(ro) {
     <div class="sub-h" style="margin-top:18px">Tiempo de gestión</div>
     ${tiempos.map(([l, i]) => htmlLinea(l, i)).join('') || `<p class="hint">Horas usadas en cotizar, comprar y retirar.</p>`}
     ${ro ? '' : `<button class="btn btn-sec btn-full" style="margin-top:10px" id="add-tiempo">＋ Tiempo de gestión</button>`}
-    ${presentes.length ? `<div class="det-box">
-      <div class="sub-h" style="margin:0 0 4px">En la cotización</div>
-      <p class="hint" style="margin:0 0 4px">Sin marcar, todo va en una sola línea: <i>Gestión de compras y materiales</i>.</p>
-      ${presentes.map(([id, nom]) => `<label class="check"><input type="checkbox" data-det="${esc(id)}" ${det.has(id) ? 'checked' : ''} ${ro ? 'disabled' : ''}> Detallar ${esc(nom)}</label>`).join('')}
-    </div>` : ''}
   </div>`;
 }
 
@@ -771,18 +763,35 @@ function modalCotizacion(version) {
   const cfg = S.config;
   const hayCond = !!String(cfg.COT_CONDICIONES || '').trim();
   const nFotos = S.fotos.filter(f => String(f.nOT) === String(ED.ot.nOT) && f.enPresupuesto !== false).length;
-  const det = String(ED.ot.detallar || '').split(',').filter(Boolean).map(id => (S.tiposItem.find(t => t.id === id) || {}).nombre).filter(Boolean);
+  const incl = ED.lineas.filter(l => l.incluida !== false);
+  const hayCompras = incl.some(l => ['Compra', 'Tiempo de gestión'].includes(Calc.tipoDe(l)));
+  const hayMO = incl.some(l => Calc.tipoDe(l) === 'Mano de obra');
+  const tiposPres = [...new Map(incl.filter(l => Calc.tipoDe(l) === 'Compra' && l.tipoItemId)
+    .map(l => [l.tipoItemId, l.tipoItem || (S.tiposItem.find(t => t.id === l.tipoItemId) || {}).nombre || 'Ítem'])).entries()];
   const m = abrirModal(`
     <h3>Cotización ${otNum(ED.ot.nOT)} v${version}<button class="x" data-cerrar>✕</button></h3>
-    <label class="check"><input type="checkbox" id="c-agr" ${cfg.COT_MO_AGRUPADA === 'SI' ? 'checked' : ''}> Agrupar mano de obra por categoría</label>
+    <p class="hint" style="margin:0 0 6px">Sin marcar nada, la cotización muestra solo el trabajo pedido y su valor.</p>
+    <label class="check"><input type="checkbox" id="c-dc" ${cfg.COT_DETALLE_COMPRAS === 'SI' ? 'checked' : ''} ${hayCompras ? '' : 'disabled'}> Mostrar gestión de compras</label>
+    <div class="sub-opts" id="c-dc-sub">${tiposPres.map(([id, nom]) => `<label class="check"><input type="checkbox" data-tipo="${esc(id)}" checked> Listar ${esc(nom)}</label>`).join('') || '<p class="hint">Solo hay tiempo de gestión.</p>'}</div>
+    <label class="check"><input type="checkbox" id="c-dm" ${cfg.COT_DETALLE_MO === 'SI' ? 'checked' : ''} ${hayMO ? '' : 'disabled'}> Mostrar mano de obra</label>
+    <div class="sub-opts" id="c-dm-sub"><label class="check"><input type="checkbox" id="c-agr" ${cfg.COT_MO_AGRUPADA === 'SI' ? 'checked' : ''}> Agrupada por categoría (en vez de cada proceso)</label></div>
+    <hr class="sep">
     <label class="check"><input type="checkbox" id="c-cond" ${hayCond && cfg.COT_INCLUIR_CONDICIONES === 'SI' ? 'checked' : ''} ${hayCond ? '' : 'disabled'}> Incluir condiciones</label>
     ${hayCond ? '' : '<p class="hint">Para usar condiciones, escríbelas en Config → Cotizaciones.</p>'}
-    <p class="hint" style="margin-top:12px">🛒 Compras: ${det.length ? 'se detallan ' + esc(det.join(', ')) + '; el resto va en una línea.' : 'todo en una línea (<i>Gestión de compras y materiales</i>).'} Se cambia en el bloque de gestión de compras.</p>
-    <p class="hint">📷 ${nFotos ? nFotos + ' foto' + (nFotos === 1 ? '' : 's') + ' en el anexo fotográfico.' : 'Sin fotos marcadas para la cotización.'}</p>
+    <p class="hint" style="margin-top:12px">📷 ${nFotos ? nFotos + ' foto' + (nFotos === 1 ? '' : 's') + ' en el anexo fotográfico.' : 'Sin fotos marcadas para la cotización.'}</p>
     ${S.config.EMPRESA_RUT ? '' : '<p class="hint" style="color:#8A5310">⚠ Faltan datos de la empresa (RUT, etc.) en Config.</p>'}
     <div class="btn-row"><button class="btn btn-primary" id="c-ok">Generar</button></div>`);
+  const sync = () => {
+    $('#c-dc-sub').classList.toggle('hidden', !$('#c-dc').checked);
+    $('#c-dm-sub').classList.toggle('hidden', !$('#c-dm').checked);
+  };
+  $('#c-dc').onchange = sync; $('#c-dm').onchange = sync; sync();
   $('#c-ok').onclick = async () => {
-    const opciones = { agruparMO: $('#c-agr').checked, incluirCondiciones: $('#c-cond').checked, detallar: String(ED.ot.detallar || '').split(',').filter(Boolean) };
+    const opciones = {
+      detalleCompras: $('#c-dc').checked && hayCompras, detalleMO: $('#c-dm').checked && hayMO,
+      agruparMO: $('#c-agr').checked, incluirCondiciones: $('#c-cond').checked,
+      tiposOcultos: [...m.querySelectorAll('[data-tipo]')].filter(cb => !cb.checked).map(cb => cb.dataset.tipo)
+    };
     m.querySelectorAll('button').forEach(b => b.disabled = true);
     try {
       const { doc, totales } = await armarPDF(version, opciones);
@@ -1056,7 +1065,9 @@ function renderConfig(app) {
       <textarea id="q-cond" placeholder="Ej: Validez de la cotización: 15 días. Forma de pago: 30 días desde la recepción de la factura.">${esc(cfg.COT_CONDICIONES)}</textarea>
       <p class="hint">Valores por defecto al generar una cotización (se pueden cambiar en cada una):</p>
       <label class="check"><input type="checkbox" id="q-inc" ${cfg.COT_INCLUIR_CONDICIONES === 'SI' ? 'checked' : ''}> Incluir condiciones</label>
-      <label class="check"><input type="checkbox" id="q-agr" ${cfg.COT_MO_AGRUPADA === 'SI' ? 'checked' : ''}> Agrupar mano de obra por categoría</label>
+      <label class="check"><input type="checkbox" id="q-dc" ${cfg.COT_DETALLE_COMPRAS === 'SI' ? 'checked' : ''}> Mostrar gestión de compras</label>
+      <label class="check"><input type="checkbox" id="q-dm" ${cfg.COT_DETALLE_MO === 'SI' ? 'checked' : ''}> Mostrar mano de obra</label>
+      <label class="check"><input type="checkbox" id="q-agr" ${cfg.COT_MO_AGRUPADA === 'SI' ? 'checked' : ''}> Mano de obra agrupada por categoría</label>
       <button class="btn btn-primary btn-full" style="margin-top:14px" id="q-ok">Guardar</button>
     </div>` : ''}
 
@@ -1108,7 +1119,9 @@ function renderConfig(app) {
   $('#q-ok').onclick = () => guardarConfig({
     COT_CONDICIONES: $('#q-cond').value.trim(),
     COT_INCLUIR_CONDICIONES: $('#q-inc').checked ? 'SI' : 'NO',
-    COT_MO_AGRUPADA: $('#q-agr').checked ? 'SI' : 'NO'
+    COT_MO_AGRUPADA: $('#q-agr').checked ? 'SI' : 'NO',
+    COT_DETALLE_COMPRAS: $('#q-dc').checked ? 'SI' : 'NO',
+    COT_DETALLE_MO: $('#q-dm').checked ? 'SI' : 'NO'
   });
   $('#e-ok').onclick = async () => {
     const values = {}; emp.forEach(([k]) => { values[k] = $('#e-' + k).value.trim(); });

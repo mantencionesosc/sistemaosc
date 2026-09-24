@@ -3,7 +3,7 @@
 App web para registrar las **órdenes de trabajo (OT)** de Mantenciones OSC desde el celular.
 La fuente de verdad es una **planilla de Google Sheets** y el backend es **Apps Script**.
 
-**Versión 2.1 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
+**Versión 2.2 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
 
 **Próxima etapa:** asignación de OC, folio SII y resumen por cliente (etapa 3).
 
@@ -33,9 +33,10 @@ Cada línea guarda el valor hora vigente cuando se creó y cada OT guarda el % d
 ## Fotos y cotizaciones
 - Las fotos se achican en el teléfono (máx. 1600 px) y se guardan en Google Drive, en **Mantenciones OSC — Archivos / OT-0001 / …**
 - Cada cotización generada se guarda en PDF en la misma carpeta de la OT y queda registrada en la hoja `Cotizaciones`, como v1, v2…
-- Al generar una cotización puedes elegir si la mano de obra va agrupada por categoría y si incluye las condiciones. Los valores por defecto se cambian en Config → Cotizaciones.
-- La gestión de compras va en una línea, salvo los tipos de ítem marcados con "Detallar" en la OT.
-- La firma y los datos del emisor salen de Config → Datos de la empresa.
+- **Por defecto la cotización es resumida:** una sola fila con lo que pidió el cliente, el detalle del pedido y el valor neto; después, IVA y total.
+- Al generarla puedes marcar **"Mostrar gestión de compras"** (lista lo comprado; se puede ocultar por tipo) y **"Mostrar mano de obra"** (cada proceso, o agrupada por categoría). Lo que no marques queda en una línea resumida.
+- El recargo general nunca aparece como línea: se reparte en los montos.
+- Los valores por defecto de estas casillas y las condiciones se configuran en Config → Cotizaciones. La firma y los datos del emisor salen de Config → Datos de la empresa.
 
 ## Instalación (una sola vez, con la cuenta de Google de Mantenciones)
 
@@ -43,11 +44,12 @@ Cada línea guarda el valor hora vigente cuando se creó y cada OT guarda el % d
 1. Inicia sesión en Google con la cuenta de Mantenciones y crea una planilla nueva, por ejemplo **"OSC — Base de datos"**.
 2. En la planilla, abre **Extensiones → Apps Script**.
 3. Borra el contenido de `Código.gs` y pega el contenido de **`apps-script/Code.gs`**. Guarda con el ícono 💾.
-4. Arriba, en el selector de funciones, elige **`setup`** y presiona **Ejecutar**.
+4. En **⚙️ Configuración del proyecto**, activa *"Mostrar el archivo de manifiesto appsscript.json"*. Luego, en el editor, reemplaza el contenido de `appsscript.json` por el de **`apps-script/appsscript.json`**. Ese archivo declara los permisos de Sheets y Drive; sin él, Google puede no pedir el permiso de Drive.
+5. Arriba, en el selector de funciones, elige **`setup`** y presiona **Ejecutar**.
    - Google pedirá permisos: *Revisar permisos → elige la cuenta → Configuración avanzada → Ir a (proyecto) → Permitir*.
-5. Abre **Registro de ejecución** y copia el **TOKEN** que aparece (12 caracteres).
+6. Abre **Registro de ejecución** y copia el **TOKEN** que aparece (12 caracteres).
    - En la planilla ya quedaron creadas todas las hojas, las 6 categorías y el cliente UdeC.
-6. Presiona **Implementar → Nueva implementación** y elige el tipo **Aplicación web**.
+7. Presiona **Implementar → Nueva implementación** y elige el tipo **Aplicación web**.
    - *Ejecutar como:* **Yo**
    - *Quién tiene acceso:* **Cualquier usuario**
    - Presiona **Implementar** y copia la **URL** (termina en `/exec`).

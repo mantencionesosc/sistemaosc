@@ -15,31 +15,39 @@ const Cotizacion = (() => {
   const fecha = iso => { const [y, m, d] = String(iso || '').slice(0, 10).split('-'); return d ? `${d}-${m}-${y}` : ''; };
   const otNum = n => 'OT-' + String(n).padStart(4, '0');
 
-  /** Filas de la tabla según las opciones. Devuelve [{seccion}|{desc, monto}] */
-  function filas(lineas, { detallar = [], agruparMO = false, montoLinea }) {
-    const det = new Set(detallar);
+  /** Filas de la tabla según las opciones. Devuelve [{seccion} | {desc, sub?, monto, principal?}]
+   *  Sin detalle: una sola fila con lo que pidió el cliente (título + detalle) y su valor.
+   *  detalleCompras: lista lo comprado (salvo los tipos ocultos, que se suman a la línea de gestión).
+   *  detalleMO: lista cada proceso de mano de obra (o por categoría si agruparMO). */
+  function filas(lineas, { ot = {}, detalleCompras = false, detalleMO = false, agruparMO = false, tiposOcultos = [], montoLinea }) {
     const inc = lineas.filter(l => l.incluida !== false);
+    const suma = ls => ls.reduce((s, l) => s + montoLinea(l), 0);
     const compras = inc.filter(l => l.tipo === 'Compra' || l.tipo === 'Material');
     const tiempos = inc.filter(l => l.tipo === 'Tiempo de gestión');
     const mo = inc.filter(l => l.tipo === 'Mano de obra');
+    if (!detalleCompras && !detalleMO) {
+      return inc.length ? [{ desc: ot.titulo || 'Trabajo', sub: ot.descripcion || '', monto: suma(inc), principal: true }] : [];
+    }
     const out = [];
-
-    const detalladas = compras.filter(l => det.has(l.tipoItemId));
-    const agrupadas = compras.filter(l => !det.has(l.tipoItemId));
-    const montoAgr = agrupadas.concat(tiempos).reduce((s, l) => s + montoLinea(l), 0);
     if (compras.length || tiempos.length) {
       out.push({ seccion: 'Gestión de compras' });
-      if (montoAgr > 0 || (!detalladas.length && (agrupadas.length || tiempos.length))) {
-        out.push({ desc: agrupadas.length ? 'Gestión de compras y materiales' : 'Gestión de compras', monto: montoAgr });
+      if (detalleCompras) {
+        const ocultos = new Set(tiposOcultos);
+        const visibles = compras.filter(l => !ocultos.has(l.tipoItemId));
+        const agregados = compras.filter(l => ocultos.has(l.tipoItemId)).concat(tiempos);
+        visibles.forEach(l => {
+          const cant = Number(l.cantidad) || 0;
+          out.push({ desc: `${l.descripcion}${cant !== 1 ? ` (${String(cant).replace('.', ',')} un.)` : ''}`, monto: montoLinea(l) });
+        });
+        if (agregados.length) out.push({ desc: agregados.some(l => l.tipo !== 'Tiempo de gestión') ? 'Gestión de compras y otros materiales' : 'Gestión de compras', monto: suma(agregados) });
+      } else {
+        out.push({ desc: compras.length ? 'Gestión de compras y materiales' : 'Gestión de compras', monto: suma(compras.concat(tiempos)) });
       }
-      detalladas.forEach(l => {
-        const cant = Number(l.cantidad) || 0;
-        out.push({ desc: `${l.tipoItem ? l.tipoItem + ': ' : ''}${l.descripcion}${cant !== 1 ? ` (${String(cant).replace('.', ',')} un.)` : ''}`, monto: montoLinea(l) });
-      });
     }
     if (mo.length) {
       out.push({ seccion: 'Mano de obra' });
-      if (agruparMO) {
+      if (!detalleMO) out.push({ desc: 'Mano de obra', monto: suma(mo) });
+      else if (agruparMO) {
         const g = new Map();
         mo.forEach(l => g.set(l.categoria || 'Mano de obra', (g.get(l.categoria || 'Mano de obra') || 0) + montoLinea(l)));
         g.forEach((monto, cat) => out.push({ desc: cat, monto }));
@@ -65,7 +73,7 @@ const Cotizacion = (() => {
 
   /**
    * datos: { ot, lineas, cfg, cliente, solicitante, ubicacion, version, fechaISO,
-   *          opciones: { agruparMO, incluirCondiciones, detallar[] }, fotos: [{etapa, descripcion, data}], logo (dataURL),
+   *          opciones: { detalleCompras, detalleMO, agruparMO, tiposOcultos[], incluirCondiciones }, fotos: [{etapa, descripcion, data}], logo (dataURL),
    *          montoLinea, totales: {neto, iva, total, ivaPct} }
    */
   function generar(datos) {
@@ -133,14 +141,18 @@ const Cotizacion = (() => {
     caja(M + colW + 6, 'PARA', receptor);
     y += altoCaja + 8;
 
-    // ── Trabajo solicitado
-    font('bold', 8, C.terra); doc.text('TRABAJO SOLICITADO', M, y); y += 5.5;
-    font('bold', 12); wrap(ot.titulo, ANCHO).forEach(w => { doc.text(w, M, y); y += 5.5; });
-    if (ot.descripcion) {
-      font('normal', 9.5, C.cafe2);
-      wrap(ot.descripcion, ANCHO).forEach(w => { saltoSi(5); doc.text(w, M, y); y += 4.5; });
+    const resumida = !opciones.detalleCompras && !opciones.detalleMO;
+
+    // ── Trabajo solicitado (en la versión resumida va dentro de la tabla)
+    if (!resumida) {
+      font('bold', 8, C.terra); doc.text('TRABAJO SOLICITADO', M, y); y += 5.5;
+      font('bold', 12); wrap(ot.titulo, ANCHO).forEach(w => { doc.text(w, M, y); y += 5.5; });
+      if (ot.descripcion) {
+        font('normal', 9.5, C.cafe2);
+        wrap(ot.descripcion, ANCHO).forEach(w => { saltoSi(5); doc.text(w, M, y); y += 4.5; });
+      }
+      y += 5;
     }
-    y += 5;
 
     // ── Tabla
     const colMonto = 36;
@@ -152,7 +164,10 @@ const Cotizacion = (() => {
       y += 8;
     };
     encabezadoTabla();
-    const rows = filas(datos.lineas, { detallar: opciones.detallar || [], agruparMO: !!opciones.agruparMO, montoLinea: datos.montoLinea });
+    const rows = filas(datos.lineas, {
+      ot, detalleCompras: !!opciones.detalleCompras, detalleMO: !!opciones.detalleMO, agruparMO: !!opciones.agruparMO,
+      tiposOcultos: opciones.tiposOcultos || [], montoLinea: datos.montoLinea
+    });
     repartirRecargo(rows, totales.neto);
     rows.forEach(r => {
       if (r.seccion) {
@@ -162,12 +177,20 @@ const Cotizacion = (() => {
         y += 7;
         return;
       }
-      font('normal', 9.5);
-      const ls = wrap(r.desc, ANCHO - colMonto - 6);
-      const alto = Math.max(7.5, ls.length * 4.4 + 3.2);
+      const anchoTxt = ANCHO - colMonto - 6;
+      font(r.principal ? 'bold' : 'normal', r.principal ? 10.5 : 9.5);
+      const ls = wrap(r.desc, anchoTxt);
+      doc.setFontSize(9.5);
+      const subs = r.sub ? wrap(r.sub, anchoTxt) : [];
+      const alto = Math.max(7.5, ls.length * 4.6 + subs.length * 4.3 + (subs.length ? 1.5 : 0) + 3.2);
       saltoSi(alto, encabezadoTabla);
-      ls.forEach((w, i) => doc.text(w, M + 3, y + 5 + i * 4.4));
-      font('bold', 9.5); doc.text(clp(r.monto), W - M - 3, y + 5, { align: 'right' });
+      font(r.principal ? 'bold' : 'normal', r.principal ? 10.5 : 9.5);
+      ls.forEach((w, i) => doc.text(w, M + 3, y + 5 + i * 4.6));
+      if (subs.length) {
+        font('normal', 9.5, C.cafe2);
+        subs.forEach((w, i) => doc.text(w, M + 3, y + 5 + ls.length * 4.6 + 1.5 + i * 4.3));
+      }
+      font('bold', r.principal ? 10.5 : 9.5, C.cafe); doc.text(clp(r.monto), W - M - 3, y + 5, { align: 'right' });
       color(C.linea, 'draw'); doc.setLineWidth(0.2); doc.line(M, y + alto, W - M, y + alto);
       y += alto;
     });

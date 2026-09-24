@@ -11,7 +11,7 @@
  *      (Ejecutar como: Yo · Quién tiene acceso: Cualquier usuario).
  */
 
-const VERSION = '2.1.2';
+const VERSION = '2.2';
 
 // ════════════════════════════════════════════════════════════ ESQUEMA
 // Cada hoja: lista de [claveJS, encabezadoEnLaHoja]. El orden define las columnas.
@@ -101,7 +101,9 @@ const CONFIG_DEFAULTS = [
   ['EMPRESA_FIRMA', '', 'Nombre de quien firma las cotizaciones'],
   ['COT_CONDICIONES', '', 'Texto de condiciones para el pie de la cotización (validez, forma de pago…)'],
   ['COT_INCLUIR_CONDICIONES', 'NO', 'SI/NO: valor por defecto de "Incluir condiciones" al generar una cotización'],
-  ['COT_MO_AGRUPADA', 'NO', 'SI/NO: valor por defecto de "Agrupar mano de obra por categoría"']
+  ['COT_MO_AGRUPADA', 'NO', 'SI/NO: valor por defecto de "Mano de obra agrupada por categoría"'],
+  ['COT_DETALLE_COMPRAS', 'NO', 'SI/NO: valor por defecto de "Mostrar gestión de compras" (NO = cotización resumida)'],
+  ['COT_DETALLE_MO', 'NO', 'SI/NO: valor por defecto de "Mostrar mano de obra" (NO = cotización resumida)']
 ];
 
 const ETAPAS_FOTO = ['Antes', 'Durante', 'Después'];
@@ -207,6 +209,13 @@ function regenerarToken() {
   PropertiesService.getScriptProperties().setProperty('TOKEN', token);
   Logger.log('🔑 Nuevo TOKEN: ' + token + ' (actualízalo en la app → Config)');
   return token;
+}
+
+/** Prueba directa de Drive, sin mensajes propios: sirve para ver el error original de Google. */
+function probarDrive() {
+  const f = DriveApp.createFolder('Prueba OSC (se borra sola)');
+  Logger.log('✅ Drive funciona: ' + f.getUrl());
+  f.setTrashed(true);
 }
 
 // ════════════════════════════════════════════════════════════ API
@@ -507,7 +516,7 @@ function carpetaRaiz_() {
   try { return carpetaRaizSinManejo_(); } catch (e) {
     const m = String(e && e.message || e);
     if (/permis|autoriz|authoriz|access/i.test(m)) {
-      throw new Error('Falta autorizar Google Drive. En Apps Script elige la función setup, presiona Ejecutar y acepta los permisos.');
+      throw new Error('Falta autorizar Google Drive. En Apps Script elige la función setup, presiona Ejecutar y acepta los permisos. (Detalle de Google: ' + m + ')');
     }
     throw e;
   }

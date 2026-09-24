@@ -3,7 +3,7 @@
  * Sirve para probar la app antes de conectar la planilla. Nada de esto llega a Google Sheets.
  */
 const Demo = (() => {
-  const KEY = 'osc_demo_db_v4';
+  const KEY = 'osc_demo_db_v5';
   const IMG = {};  // fotos de la demo: solo en memoria (no caben en el almacenamiento del navegador)
 
   function seed() {
@@ -15,7 +15,7 @@ const Demo = (() => {
         HH_BASE: 0, IVA_PCT: 19, RECARGO_MATERIALES_PCT: 30,
         EMPRESA_NOMBRE: 'Mantenciones OSC', EMPRESA_RAZON_SOCIAL: '', EMPRESA_RUT: '',
         EMPRESA_GIRO: '', EMPRESA_DIRECCION: '', EMPRESA_TELEFONO: '', EMPRESA_CORREO: '', EMPRESA_FIRMA: '',
-        COT_CONDICIONES: '', COT_INCLUIR_CONDICIONES: 'NO', COT_MO_AGRUPADA: 'NO'
+        COT_CONDICIONES: '', COT_INCLUIR_CONDICIONES: 'NO', COT_MO_AGRUPADA: 'NO', COT_DETALLE_COMPRAS: 'NO', COT_DETALLE_MO: 'NO'
       },
       categorias: [
         { id: 'CAT-1', nombre: 'Gestión de compras', factor: 1, valorHora: 10000, orden: 1, activa: true, uso: 'Gestión' },
