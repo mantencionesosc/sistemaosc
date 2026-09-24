@@ -1,4 +1,4 @@
-/* Mantenciones OSC — App web (etapa 1.1: OT con gestión de compras, Clientes, Config)
+/* Mantenciones OSC — App web (v2: OT, gestión de compras, fotos, cotización PDF, Clientes, Config)
  * Fuente de verdad: Google Sheets vía Apps Script (Web App).
  */
 
@@ -13,7 +13,8 @@ let API_URL = LS.get('osc_url');
 let TOKEN = LS.get('osc_token');
 let DEMO = LS.get('osc_demo') === '1';
 
-const S = { config: {}, categorias: [], tiposItem: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [] };
+const S = { config: {}, categorias: [], tiposItem: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [] };
+const FOTOS = {};   // nOT -> [{...foto, data}] (se cargan al abrir la OT)
 let SYNCED = false;
 
 // ════════════════════════════════════════════════════════ CÁLCULO (compartido con demo.js)
@@ -141,9 +142,11 @@ async function sync(silencioso = false) {
     const d = await api('getAll');
     Object.assign(S, {
       config: d.config || {}, categorias: d.categorias || [], tiposItem: d.tiposItem || [], clientes: d.clientes || [],
-      solicitantes: d.solicitantes || [], ubicaciones: d.ubicaciones || [], ots: d.ots || [], lineas: d.lineas || []
+      solicitantes: d.solicitantes || [], ubicaciones: d.ubicaciones || [], ots: d.ots || [], lineas: d.lineas || [],
+      fotos: d.fotos || [], cotizaciones: d.cotizaciones || []
     });
     SYNCED = true;
+    Object.keys(FOTOS).forEach(k => delete FOTOS[k]);  // se vuelven a pedir al abrir cada OT
     guardarCache();
     actualizarEstado();
     if (!silencioso) toast('✓ Sincronizado', 'ok', 1400); else $('#toast').classList.remove('show');
@@ -235,7 +238,7 @@ function itemOT(o) {
   return `<a class="ot-item e-${slug(o.estado)}" href="#/ot/${o.nOT}">
     <div class="ot-top"><span class="ot-num">${otNum(o.nOT)}</span><span>${fechaCorta(o.fechaInicio)}</span></div>
     <div class="ot-tit">${esc(o.titulo)}</div>
-    <div class="ot-meta">${esc([o.ubicacion, o.solicitante].filter(Boolean).join(' · ') || o.cliente)}</div>
+    <div class="ot-meta">${esc([o.ubicacion, o.solicitante].filter(Boolean).join(' · ') || o.cliente)}${(() => { const nf = S.fotos.filter(f => String(f.nOT) === String(o.nOT)).length, nc = S.cotizaciones.filter(c => String(c.nOT) === String(o.nOT)).length; return (nf ? ' · 📷 ' + nf : '') + (nc ? ' · 📄 v' + nc : ''); })()}</div>
     <div class="ot-bottom">
       <div class="badges">
         <span class="badge b-${slug(o.estado)}">${esc(o.estado)}</span>
@@ -327,6 +330,9 @@ function renderEditor(param) {
       ${ro ? '' : `<button class="btn btn-primary btn-full" style="margin-top:12px" id="add-mo">＋ Mano de obra</button>`}
     </div>
 
+    <div class="card" id="fotos-card"></div>
+    <div class="card" id="cot-card"></div>
+
     <div class="card">
       <label for="f-notas">Notas internas</label>
       <textarea id="f-notas" placeholder="Solo para ustedes, no sale en la cotización" ${ro ? 'readonly' : ''}>${esc(o.notas)}</textarea>
@@ -339,6 +345,8 @@ function renderEditor(param) {
     </div></div>`;
 
   pintarTotales();
+  renderFotosCard();
+  renderCotCard();
 
   $('#ed-back').onclick = () => { location.hash = '#/ots'; };
   if (ro) { app.querySelectorAll('.linea').forEach(el => el.onclick = () => abrirLinea(+el.dataset.i, true)); return; }
@@ -595,6 +603,225 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
   montar();
 }
 
+// ════════════════════════════════════════════════════════ FOTOS
+const ETAPAS_FOTO = ['Antes', 'Durante', 'Después'];
+const etapaSugerida = () => ({ 'Pendiente': 'Antes', 'En curso': 'Durante', 'Terminada': 'Después' }[ED && ED.ot.estado] || 'Durante');
+
+async function cargarFotos(nOT, forzar = false) {
+  if (FOTOS[nOT] && !forzar) return FOTOS[nOT];
+  const r = await api('getFotos', { nOT });
+  FOTOS[nOT] = r.fotos || [];
+  return FOTOS[nOT];
+}
+
+function renderFotosCard() {
+  const box = $('#fotos-card'); if (!box || !ED) return;
+  const o = ED.ot, ro = !!o.folioSII, n = o.nOT;
+  const meta = n ? S.fotos.filter(f => String(f.nOT) === String(n)) : [];
+  const fotos = FOTOS[n];
+  let grid;
+  if (!n) grid = '<p class="hint">Guarda la OT para poder agregar fotos.</p>';
+  else if (!meta.length && !fotos) grid = '<p class="hint">Sin fotos todavía. Saca fotos del antes, durante y después.</p>';
+  else if (!fotos) grid = `<p class="hint">Cargando ${meta.length} foto${meta.length === 1 ? '' : 's'}…</p>`;
+  else if (!fotos.length) grid = '<p class="hint">Sin fotos todavía. Saca fotos del antes, durante y después.</p>';
+  else grid = ETAPAS_FOTO.map(et => {
+    const fs = fotos.filter(f => f.etapa === et);
+    if (!fs.length) return '';
+    return `<div class="sub-h" style="margin-top:6px">${et}</div><div class="foto-grid">${fs.map(f => `
+      <button type="button" class="foto" data-foto="${esc(f.id)}">
+        ${f.data ? `<img src="data:image/jpeg;base64,${f.data}" alt="">` : '<span class="hint">sin archivo</span>'}
+        ${f.enPresupuesto !== false ? '<span class="foto-tag" title="Va en la cotización">📄</span>' : ''}
+      </button>`).join('')}</div>`;
+  }).join('');
+  box.innerHTML = `<h2>📷 Fotos <span class="extra">${meta.length || ''}</span></h2>${grid}
+    ${n && !ro ? `<label class="btn btn-sec btn-full" style="margin-top:12px">＋ Agregar fotos<input type="file" id="foto-input" accept="image/*" multiple hidden></label>` : ''}`;
+  if (n && meta.length && !fotos) cargarFotos(n).then(() => renderFotosCard()).catch(e => toast('No se pudieron cargar las fotos: ' + e.message, 'err'));
+  box.querySelectorAll('[data-foto]').forEach(b => b.onclick = () => modalFoto(b.dataset.foto, ro));
+  const inp = $('#foto-input');
+  if (inp) inp.onchange = () => { const files = [...inp.files]; inp.value = ''; if (files.length) modalSubirFotos(files); };
+}
+
+async function comprimirImagen(file, max = 1600, q = 0.8) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('No se pudo leer la imagen')); i.src = url; });
+    const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', q).split(',')[1];
+  } finally { URL.revokeObjectURL(url); }
+}
+
+function modalSubirFotos(files) {
+  let etapa = etapaSugerida();
+  const m = abrirModal(`
+    <h3>Subir ${files.length} foto${files.length === 1 ? '' : 's'}<button class="x" data-cerrar>✕</button></h3>
+    <label>Etapa</label>
+    <div class="seg" id="sf-etapa">${ETAPAS_FOTO.map(e => `<button type="button" data-v="${e}" class="${e === etapa ? 'on' : ''}">${e}</button>`).join('')}</div>
+    <label for="sf-desc">Descripción (opcional)</label>
+    <input id="sf-desc" placeholder="Ej: Lavamanos antiguo con filtración">
+    <label class="check"><input type="checkbox" id="sf-cot" checked> Mostrar en la cotización</label>
+    <div class="btn-row"><button class="btn btn-primary" id="sf-ok">Subir</button></div>`);
+  m.querySelectorAll('#sf-etapa button').forEach(b => b.onclick = () => { etapa = b.dataset.v; m.querySelectorAll('#sf-etapa button').forEach(x => x.classList.toggle('on', x === b)); });
+  $('#sf-ok').onclick = async () => {
+    const desc = $('#sf-desc').value.trim(), enCot = $('#sf-cot').checked, nOT = ED.ot.nOT;
+    cerrarModal();
+    let ok = 0;
+    for (const [k, f] of files.entries()) {
+      toast(`Subiendo foto ${k + 1} de ${files.length}…`);
+      try {
+        const data = await comprimirImagen(f);
+        const r = await api('uploadFoto', { nOT, etapa, descripcion: desc, enPresupuesto: enCot, data });
+        S.fotos.push(r.item);
+        (FOTOS[nOT] = FOTOS[nOT] || []).push(Object.assign({}, r.item, { data }));
+        ok++;
+        renderFotosCard();
+      } catch (e) { toast(`Foto ${k + 1}: ${e.message}`, 'err'); }
+    }
+    guardarCache();
+    if (ok) toast(`✓ ${ok} foto${ok === 1 ? '' : 's'} subida${ok === 1 ? '' : 's'}`, 'ok');
+  };
+}
+
+function modalFoto(id, ro) {
+  const nOT = ED.ot.nOT;
+  const f = (FOTOS[nOT] || []).find(x => x.id === id); if (!f) return;
+  let etapa = f.etapa;
+  const m = abrirModal(`
+    <h3>Foto · ${esc(f.etapa)}<button class="x" data-cerrar>✕</button></h3>
+    ${f.data ? `<img class="foto-grande" src="data:image/jpeg;base64,${f.data}" alt="">` : ''}
+    ${ro ? `<p>${esc(f.descripcion || '')}</p>` : `
+    <label>Etapa</label>
+    <div class="seg" id="mf-etapa">${ETAPAS_FOTO.map(e => `<button type="button" data-v="${e}" class="${e === etapa ? 'on' : ''}">${e}</button>`).join('')}</div>
+    <label for="mf-desc">Descripción</label>
+    <input id="mf-desc" value="${esc(f.descripcion)}">
+    <label class="check"><input type="checkbox" id="mf-cot" ${f.enPresupuesto !== false ? 'checked' : ''}> Mostrar en la cotización</label>
+    <div class="btn-row"><button class="btn btn-danger" id="mf-del">Eliminar</button><button class="btn btn-primary" id="mf-ok">Guardar</button></div>`}`);
+  if (ro) return;
+  m.querySelectorAll('#mf-etapa button').forEach(b => b.onclick = () => { etapa = b.dataset.v; m.querySelectorAll('#mf-etapa button').forEach(x => x.classList.toggle('on', x === b)); });
+  $('#mf-ok').onclick = async () => {
+    toast('Guardando…');
+    try {
+      const r = await api('updateFoto', { item: { id, etapa, descripcion: $('#mf-desc').value.trim(), enPresupuesto: $('#mf-cot').checked } });
+      Object.assign(f, r.item);
+      S.fotos = S.fotos.map(x => x.id === id ? r.item : x); guardarCache();
+      cerrarModal(); renderFotosCard(); toast('✓ Foto actualizada', 'ok', 1200);
+    } catch (e) { toast('No se guardó: ' + e.message, 'err'); }
+  };
+  $('#mf-del').onclick = async () => {
+    if (!confirm('¿Eliminar esta foto? Se mueve a la papelera de Drive.')) return;
+    toast('Eliminando…');
+    try {
+      await api('deleteFoto', { id });
+      FOTOS[nOT] = FOTOS[nOT].filter(x => x.id !== id);
+      S.fotos = S.fotos.filter(x => x.id !== id); guardarCache();
+      cerrarModal(); renderFotosCard(); toast('✓ Foto eliminada', 'ok', 1200);
+    } catch (e) { toast('No se eliminó: ' + e.message, 'err'); }
+  };
+}
+
+// ════════════════════════════════════════════════════════ COTIZACIÓN PDF
+function renderCotCard() {
+  const box = $('#cot-card'); if (!box || !ED) return;
+  const n = ED.ot.nOT;
+  const cots = n ? S.cotizaciones.filter(c => String(c.nOT) === String(n)).sort((a, b) => a.version - b.version) : [];
+  const sig = cots.reduce((m, c) => Math.max(m, Calc.num(c.version)), 0) + 1;
+  box.innerHTML = `<h2>📄 Cotización</h2>
+    ${cots.length ? cots.map(c => `<div class="list-item" style="cursor:default">
+        <div class="li-body"><div class="li-tit">${otNum(n)} v${esc(c.version)}</div><div class="li-sub">${fechaCorta(c.fecha)} ${esc(String(c.fecha).slice(11, 16))} · ${clp(c.total)}</div></div>
+        ${c.pdfUrl ? `<a class="btn btn-sec btn-sm" href="${esc(c.pdfUrl)}" target="_blank" rel="noopener">Ver PDF</a>` : ''}
+      </div>`).join('') : `<p class="hint">${n ? 'Aún no se ha generado ninguna cotización.' : 'Guarda la OT para generar la cotización.'}</p>`}
+    ${n ? `<button class="btn btn-primary btn-full" style="margin-top:12px" id="cot-gen">📄 Generar cotización v${sig}</button>` : ''}`;
+  const b = $('#cot-gen'); if (b) b.onclick = () => modalCotizacion(sig);
+}
+
+function cargarScript(src) {
+  return new Promise((res, rej) => {
+    if (document.querySelector(`script[data-src="${src}"]`)) return res();
+    const s = document.createElement('script');
+    s.src = src; s.dataset.src = src; s.onload = res; s.onerror = () => rej(new Error('No se pudo cargar ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function dataUrlDe(url) {
+  const blob = await (await fetch(url)).blob();
+  return new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
+}
+
+function modalCotizacion(version) {
+  if (ED.dirty) { toast('Guarda los cambios de la OT antes de generar la cotización', 'err'); return; }
+  const cfg = S.config;
+  const hayCond = !!String(cfg.COT_CONDICIONES || '').trim();
+  const nFotos = S.fotos.filter(f => String(f.nOT) === String(ED.ot.nOT) && f.enPresupuesto !== false).length;
+  const det = String(ED.ot.detallar || '').split(',').filter(Boolean).map(id => (S.tiposItem.find(t => t.id === id) || {}).nombre).filter(Boolean);
+  const m = abrirModal(`
+    <h3>Cotización ${otNum(ED.ot.nOT)} v${version}<button class="x" data-cerrar>✕</button></h3>
+    <label class="check"><input type="checkbox" id="c-agr" ${cfg.COT_MO_AGRUPADA === 'SI' ? 'checked' : ''}> Agrupar mano de obra por categoría</label>
+    <label class="check"><input type="checkbox" id="c-cond" ${hayCond && cfg.COT_INCLUIR_CONDICIONES === 'SI' ? 'checked' : ''} ${hayCond ? '' : 'disabled'}> Incluir condiciones</label>
+    ${hayCond ? '' : '<p class="hint">Para usar condiciones, escríbelas en Config → Cotizaciones.</p>'}
+    <p class="hint" style="margin-top:12px">🛒 Compras: ${det.length ? 'se detallan ' + esc(det.join(', ')) + '; el resto va en una línea.' : 'todo en una línea (<i>Gestión de compras y materiales</i>).'} Se cambia en el bloque de gestión de compras.</p>
+    <p class="hint">📷 ${nFotos ? nFotos + ' foto' + (nFotos === 1 ? '' : 's') + ' en el anexo fotográfico.' : 'Sin fotos marcadas para la cotización.'}</p>
+    ${S.config.EMPRESA_RUT ? '' : '<p class="hint" style="color:#8A5310">⚠ Faltan datos de la empresa (RUT, etc.) en Config.</p>'}
+    <div class="btn-row"><button class="btn btn-primary" id="c-ok">Generar</button></div>`);
+  $('#c-ok').onclick = async () => {
+    const opciones = { agruparMO: $('#c-agr').checked, incluirCondiciones: $('#c-cond').checked, detallar: String(ED.ot.detallar || '').split(',').filter(Boolean) };
+    m.querySelectorAll('button').forEach(b => b.disabled = true);
+    try {
+      const { doc, totales } = await armarPDF(version, opciones);
+      toast('Guardando en Drive…');
+      const pdf = doc.output('datauristring').split(',')[1];
+      const r = await api('saveCotizacion', { nOT: ED.ot.nOT, version, pdf, neto: totales.neto, total: totales.total });
+      S.cotizaciones.push(r.item); guardarCache();
+      const nombre = `Cotizacion_${otNum(ED.ot.nOT)}_v${r.item.version}.pdf`;
+      const file = new File([doc.output('blob')], nombre, { type: 'application/pdf' });
+      toast('✓ Cotización lista', 'ok');
+      renderCotCard();
+      modalCompartir(file, r.item);
+    } catch (e) {
+      toast('No se generó: ' + e.message, 'err');
+      m.querySelectorAll('button').forEach(b => b.disabled = false);
+    }
+  };
+}
+
+async function armarPDF(version, opciones) {
+  toast('Preparando PDF…');
+  await cargarScript('lib/jspdf.umd.min.js');
+  const o = ED.ot;
+  const [logo, fotos] = await Promise.all([dataUrlDe('img/logo-pdf.png').catch(() => null), cargarFotos(o.nOT).catch(() => [])]);
+  const ivaPct = Calc.vacio(o.ivaPct) ? Calc.num(S.config.IVA_PCT) : Calc.num(o.ivaPct);
+  const totales = Object.assign(Calc.totales(ED.lineas, ivaPct), { ivaPct });
+  const doc = Cotizacion.generar({
+    ot: o, lineas: ED.lineas.map(l => Object.assign({}, l, { tipo: Calc.tipoDe(l) })), cfg: S.config,
+    cliente: S.clientes.find(c => c.id === o.clienteId) || {},
+    solicitante: S.solicitantes.find(x => x.id === o.solicitanteId),
+    ubicacion: S.ubicaciones.find(x => x.id === o.ubicacionId),
+    version, fechaISO: hoyISO(), opciones, logo, totales, montoLinea: Calc.montoLinea,
+    fotos: fotos.filter(f => f.enPresupuesto !== false)
+  });
+  return { doc, totales };
+}
+
+function modalCompartir(file, item) {
+  const url = URL.createObjectURL(file);
+  const puedeCompartir = !!(navigator.canShare && navigator.canShare({ files: [file] }));
+  abrirModal(`
+    <h3>✓ ${esc(file.name.replace('.pdf', '').replace(/_/g, ' '))}<button class="x" data-cerrar>✕</button></h3>
+    <p class="hint">Quedó guardada${item.pdfUrl ? ' en Drive' : ''} y registrada en la OT.</p>
+    <div class="btn-row" style="flex-direction:column">
+      ${puedeCompartir ? '<button class="btn btn-primary" id="cp-share">📤 Compartir (WhatsApp, correo…)</button>' : ''}
+      <a class="btn ${puedeCompartir ? 'btn-sec' : 'btn-primary'}" href="${url}" download="${esc(file.name)}">⬇ Descargar PDF</a>
+      <a class="btn btn-sec" href="${url}" target="_blank" rel="noopener">👁 Ver PDF</a>
+    </div>`);
+  const sh = $('#cp-share');
+  if (sh) sh.onclick = async () => {
+    try { await navigator.share({ files: [file], title: file.name }); }
+    catch (e) { if (e.name !== 'AbortError') toast('No se pudo compartir: ' + e.message, 'err'); }
+  };
+}
+
 // ════════════════════════════════════════════════════════ MODAL GENÉRICO
 function abrirModal(html) {
   MODAL_OPEN = true;
@@ -746,7 +973,7 @@ function renderConfig(app) {
   const hh = Calc.num(cfg.HH_BASE);
   const cats = S.categorias.slice().sort((a, b) => (b.uso === 'Gestión') - (a.uso === 'Gestión') || Calc.num(a.orden) - Calc.num(b.orden));
   const tipos = S.tiposItem.slice().sort((a, b) => Calc.num(a.orden) - Calc.num(b.orden));
-  const emp = [['EMPRESA_NOMBRE', 'Nombre de fantasía'], ['EMPRESA_RAZON_SOCIAL', 'Razón social'], ['EMPRESA_RUT', 'RUT'], ['EMPRESA_GIRO', 'Giro'], ['EMPRESA_DIRECCION', 'Dirección'], ['EMPRESA_TELEFONO', 'Teléfono'], ['EMPRESA_CORREO', 'Correo']];
+  const emp = [['EMPRESA_NOMBRE', 'Nombre de fantasía'], ['EMPRESA_RAZON_SOCIAL', 'Razón social'], ['EMPRESA_RUT', 'RUT'], ['EMPRESA_GIRO', 'Giro'], ['EMPRESA_DIRECCION', 'Dirección'], ['EMPRESA_TELEFONO', 'Teléfono'], ['EMPRESA_CORREO', 'Correo'], ['EMPRESA_FIRMA', 'Nombre para la firma']];
 
   app.innerHTML = `
     <div class="card">
@@ -809,9 +1036,19 @@ function renderConfig(app) {
       <p class="hint" style="margin:-6px 0 4px">Aparecerán en las cotizaciones.</p>
       ${emp.map(([k, t]) => `<label for="e-${k}">${t}</label><input id="e-${k}" value="${esc(cfg[k])}">`).join('')}
       <button class="btn btn-primary btn-full" style="margin-top:14px" id="e-ok">Guardar datos</button>
+    </div>
+
+    <div class="card">
+      <h2>📄 Cotizaciones</h2>
+      <label for="q-cond">Condiciones (pie de la cotización)</label>
+      <textarea id="q-cond" placeholder="Ej: Validez de la cotización: 15 días. Forma de pago: 30 días desde la recepción de la factura.">${esc(cfg.COT_CONDICIONES)}</textarea>
+      <p class="hint">Valores por defecto al generar una cotización (se pueden cambiar en cada una):</p>
+      <label class="check"><input type="checkbox" id="q-inc" ${cfg.COT_INCLUIR_CONDICIONES === 'SI' ? 'checked' : ''}> Incluir condiciones</label>
+      <label class="check"><input type="checkbox" id="q-agr" ${cfg.COT_MO_AGRUPADA === 'SI' ? 'checked' : ''}> Agrupar mano de obra por categoría</label>
+      <button class="btn btn-primary btn-full" style="margin-top:14px" id="q-ok">Guardar</button>
     </div>` : ''}
 
-    <p class="hint" style="text-align:center;margin:18px 0">Mantenciones OSC · versión 1.1</p>`;
+    <p class="hint" style="text-align:center;margin:18px 0">Mantenciones OSC · versión 2.0</p>`;
 
   $('#k-ok').onclick = async () => {
     const url = $('#k-url').value.trim(), tok = $('#k-token').value.trim();
@@ -837,7 +1074,8 @@ function renderConfig(app) {
   const off = $('#k-demo-off');
   if (off) off.onclick = async () => {
     DEMO = false; LS.set('osc_demo', '0');
-    Object.assign(S, { config: {}, categorias: [], tiposItem: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [] });
+    Object.assign(S, { config: {}, categorias: [], tiposItem: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [] });
+    Object.keys(FOTOS).forEach(k => delete FOTOS[k]);
     SYNCED = false; cargarCache(); actualizarEstado(); render();
     if (API_URL && TOKEN) sync(true);
   };
@@ -852,6 +1090,11 @@ function renderConfig(app) {
     if (values.IVA_PCT < 0 || values.RECARGO_MATERIALES_PCT < 0) { toast('Los porcentajes no pueden ser negativos', 'err'); return; }
     await guardarConfig(values);
   };
+  $('#q-ok').onclick = () => guardarConfig({
+    COT_CONDICIONES: $('#q-cond').value.trim(),
+    COT_INCLUIR_CONDICIONES: $('#q-inc').checked ? 'SI' : 'NO',
+    COT_MO_AGRUPADA: $('#q-agr').checked ? 'SI' : 'NO'
+  });
   $('#e-ok').onclick = async () => {
     const values = {}; emp.forEach(([k]) => { values[k] = $('#e-' + k).value.trim(); });
     await guardarConfig(values);

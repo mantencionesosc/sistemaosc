@@ -3,7 +3,8 @@
  * Sirve para probar la app antes de conectar la planilla. Nada de esto llega a Google Sheets.
  */
 const Demo = (() => {
-  const KEY = 'osc_demo_db_v2';
+  const KEY = 'osc_demo_db_v3';
+  const IMG = {};  // fotos de la demo: solo en memoria (no caben en el almacenamiento del navegador)
 
   function seed() {
     const hoy = new Date().toISOString().slice(0, 10);
@@ -13,7 +14,8 @@ const Demo = (() => {
       config: {
         HH_BASE: 10000, IVA_PCT: 19, RECARGO_MATERIALES_PCT: 10,
         EMPRESA_NOMBRE: 'Mantenciones OSC', EMPRESA_RAZON_SOCIAL: '', EMPRESA_RUT: '',
-        EMPRESA_GIRO: '', EMPRESA_DIRECCION: '', EMPRESA_TELEFONO: '', EMPRESA_CORREO: ''
+        EMPRESA_GIRO: '', EMPRESA_DIRECCION: '', EMPRESA_TELEFONO: '', EMPRESA_CORREO: '', EMPRESA_FIRMA: '',
+        COT_CONDICIONES: '', COT_INCLUIR_CONDICIONES: 'NO', COT_MO_AGRUPADA: 'NO'
       },
       categorias: [
         { id: 'CAT-1', nombre: 'Gestión de compras', factor: 1, orden: 1, activa: true, uso: 'Gestión' },
@@ -30,6 +32,8 @@ const Demo = (() => {
         { id: 'TIP-4', nombre: 'Flete / transporte', orden: 4, activo: true },
         { id: 'TIP-5', nombre: 'Combustible', orden: 5, activo: true }
       ],
+      fotos: [],
+      cotizaciones: [],
       clientes: [
         { id: 'CLI-1', razonSocial: 'Universidad de Concepción', nombreCorto: 'UdeC', rut: '', giro: '', direccion: '', comuna: 'Concepción', contacto: '', correo: '', telefono: '', activo: true }
       ],
@@ -71,8 +75,8 @@ const Demo = (() => {
   const clone = o => JSON.parse(JSON.stringify(o));
   const num = v => { const n = Number(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? 0 : n; };
   const nextId = (prefix, rows) => prefix + '-' + (rows.reduce((m, r) => { const x = String(r.id).match(/-(\d+)$/); return x ? Math.max(m, +x[1]) : m; }, 0) + 1);
-  const hoy = () => new Date().toISOString().slice(0, 10);
-  const ahora = () => new Date().toISOString().slice(0, 16).replace('T', ' ');
+  const hoy = () => ahora().slice(0, 10);
+  const ahora = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16).replace('T', ' '); };
 
   function upsert(arr, key, obj) {
     const i = arr.findIndex(x => String(x[key]) === String(obj[key]));
@@ -97,6 +101,33 @@ const Demo = (() => {
       const o = { id: item.id || nextId('CAT', d.categorias), nombre: item.nombre.trim(), factor: num(item.factor), orden: item.orden || d.categorias.length + 1, activa: item.activa !== false, uso: prev && prev.uso ? prev.uso : 'Oficio' };
       if (o.uso === 'Gestión' && !o.activa) throw new Error('La categoría de gestión de compras no se puede desactivar');
       upsert(d.categorias, 'id', o);
+      return { item: clone(o) };
+    },
+    getFotos: ({ nOT }) => {
+      const d = load();
+      return { fotos: d.fotos.filter(f => String(f.nOT) === String(nOT)).map(f => Object.assign({}, f, { data: IMG[f.id] || '' })) };
+    },
+    uploadFoto: r => {
+      const d = load();
+      if (!d.ots.some(o => String(o.nOT) === String(r.nOT))) throw new Error('No existe la OT ' + r.nOT);
+      const o = { id: 'F-' + Math.random().toString(36).slice(2, 10), nOT: +r.nOT, fecha: hoy(), etapa: ['Antes', 'Durante', 'Después'].includes(r.etapa) ? r.etapa : 'Durante',
+        descripcion: String(r.descripcion || ''), fileId: '', url: '', enPresupuesto: r.enPresupuesto !== false };
+      IMG[o.id] = r.data; d.fotos.push(o);
+      return { item: clone(o) };
+    },
+    updateFoto: ({ item }) => {
+      const d = load(); const f = d.fotos.find(x => x.id === item.id);
+      if (!f) throw new Error('Foto no encontrada');
+      Object.assign(f, { etapa: item.etapa || f.etapa, descripcion: item.descripcion ?? f.descripcion, enPresupuesto: item.enPresupuesto !== false });
+      return { item: clone(f) };
+    },
+    deleteFoto: ({ id }) => { const d = load(); d.fotos = d.fotos.filter(f => f.id !== id); delete IMG[id]; return { ok: true, id }; },
+    saveCotizacion: r => {
+      const d = load();
+      const maxV = d.cotizaciones.filter(c => String(c.nOT) === String(r.nOT)).reduce((m, c) => Math.max(m, c.version), 0);
+      const version = +r.version > maxV ? +r.version : maxV + 1;
+      const o = { id: 'COT-' + r.nOT + '-' + version, nOT: +r.nOT, version, fecha: ahora(), neto: num(r.neto), total: num(r.total), pdfUrl: '', fileId: '' };
+      d.cotizaciones.push(o);
       return { item: clone(o) };
     },
     saveTipoItem: ({ item }) => {

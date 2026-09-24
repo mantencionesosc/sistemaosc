@@ -3,9 +3,9 @@
 App web para registrar las **órdenes de trabajo (OT)** de Mantenciones OSC desde el celular.
 La fuente de verdad es una **planilla de Google Sheets** y el backend es **Apps Script**.
 
-**Versión 1.1 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, clientes con solicitantes y ubicaciones, y configuración de HH, IVA, recargo, categorías con factor y datos de la empresa.
+**Versión 2.0 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de HH, IVA, recargo, categorías con factor y datos de la empresa.
 
-**Próximas etapas:** fotos y PDF de cotización (etapa 2). Asignación de OC, folio SII y resumen por cliente (etapa 3).
+**Próxima etapa:** asignación de OC, folio SII y resumen por cliente (etapa 3).
 
 ---
 
@@ -26,6 +26,13 @@ Cada línea guarda el HH, el factor y el recargo vigentes cuando se creó. Por e
 **En la cotización** (etapa 2), la gestión de compras aparece como una sola línea, *"Gestión de compras y materiales"*, salvo los tipos que marques con "Detallar" en cada OT.
 
 ---
+
+## Fotos y cotizaciones
+- Las fotos se achican en el teléfono (máx. 1600 px) y se guardan en Google Drive, en **Mantenciones OSC — Archivos / OT-0001 / …**
+- Cada cotización generada se guarda en PDF en la misma carpeta de la OT y queda registrada en la hoja `Cotizaciones`, como v1, v2…
+- Al generar una cotización puedes elegir si la mano de obra va agrupada por categoría y si incluye las condiciones. Los valores por defecto se cambian en Config → Cotizaciones.
+- La gestión de compras va en una línea, salvo los tipos de ítem marcados con "Detallar" en la OT.
+- La firma y los datos del emisor salen de Config → Datos de la empresa.
 
 ## Instalación (una sola vez, con la cuenta de Google de Mantenciones)
 
@@ -64,7 +71,7 @@ Tu hermano hace lo mismo en su teléfono, con la misma URL y el mismo token.
 
 ## Actualizar a una versión nueva
 1. En Apps Script, reemplaza todo el contenido de `Código.gs` por el nuevo `apps-script/Code.gs` y guarda.
-2. Ejecuta **`setup`** otra vez. No borra datos: solo agrega las hojas o columnas nuevas.
+2. Ejecuta **`setup`** otra vez. No borra datos: solo agrega las hojas, columnas o claves nuevas. Si Google pide permisos nuevos (por ejemplo, Drive en la versión 2.0), acéptalos igual que la primera vez.
 3. **Implementar → Gestionar implementaciones → ✏️ → Versión: Nueva versión → Implementar.** La URL no cambia.
 4. En GitHub, sube los archivos nuevos encima de los anteriores (*Add file → Upload files → Commit changes*).
 5. En el celular, abre la app y recarga. Si se ve la versión anterior, cierra y vuelve a abrir la pestaña.
@@ -83,6 +90,8 @@ index.html          estructura de la app
 styles.css          estilos (paleta tierra)
 app.js              lógica de la app
 demo.js             backend simulado para el modo demo
+cotizacion.js       arma el PDF de la cotización
+lib/jspdf.umd.min.js librería para generar PDF (incluida, no depende de internet)
 manifest.json       ícono y nombre al agregar a pantalla de inicio
 img/                logo e íconos
 apps-script/Code.gs backend (se pega en Apps Script, no lo usa GitHub Pages)

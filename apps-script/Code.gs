@@ -56,15 +56,15 @@ const SCHEMA = {
     ['monto', 'Monto'], ['incluida', 'Incluida'],
     ['tipoItemId', 'Tipo de ítem ID'], ['tipoItem', 'Tipo de ítem']
   ],
-  // Hojas de etapas siguientes (se crean ahora para dejar la estructura lista)
   Fotos: [
     ['id', 'ID'], ['nOT', 'N° OT'], ['fecha', 'Fecha'], ['etapa', 'Etapa'], ['descripcion', 'Descripción'],
-    ['fileId', 'Archivo Drive ID'], ['url', 'URL'], ['enPresupuesto', 'Mostrar en presupuesto']
+    ['fileId', 'Archivo Drive ID'], ['url', 'URL'], ['enPresupuesto', 'Mostrar en cotización']
   ],
   Cotizaciones: [
-    ['id', 'ID'], ['nOT', 'N° OT'], ['version', 'Versión'], ['fecha', 'Fecha envío'],
-    ['neto', 'Neto'], ['total', 'Total'], ['pdfUrl', 'PDF (Drive)']
+    ['id', 'ID'], ['nOT', 'N° OT'], ['version', 'Versión'], ['fecha', 'Fecha'],
+    ['neto', 'Neto'], ['total', 'Total'], ['pdfUrl', 'PDF (Drive)'], ['fileId', 'Archivo Drive ID']
   ],
+  // Hojas de la etapa 3 (se crean ahora para dejar la estructura lista)
   OrdenesCompra: [
     ['nOC', 'N° OC'], ['fecha', 'Fecha'], ['clienteId', 'Cliente ID'], ['monto', 'Monto'], ['notas', 'Notas']
   ],
@@ -93,8 +93,14 @@ const CONFIG_DEFAULTS = [
   ['EMPRESA_GIRO', '', 'Giro'],
   ['EMPRESA_DIRECCION', '', 'Dirección'],
   ['EMPRESA_TELEFONO', '', 'Teléfono'],
-  ['EMPRESA_CORREO', '', 'Correo']
+  ['EMPRESA_CORREO', '', 'Correo'],
+  ['EMPRESA_FIRMA', '', 'Nombre de quien firma las cotizaciones'],
+  ['COT_CONDICIONES', '', 'Texto de condiciones para el pie de la cotización (validez, forma de pago…)'],
+  ['COT_INCLUIR_CONDICIONES', 'NO', 'SI/NO: valor por defecto de "Incluir condiciones" al generar una cotización'],
+  ['COT_MO_AGRUPADA', 'NO', 'SI/NO: valor por defecto de "Agrupar mano de obra por categoría"']
 ];
+
+const ETAPAS_FOTO = ['Antes', 'Durante', 'Después'];
 
 const CATEGORIAS_DEFAULT = [
   'Gestión de compras', 'Mantenciones (varios)', 'Electricidad', 'Mueblería', 'Carpintería', 'Gasfitería'
@@ -174,6 +180,9 @@ function setup() {
     token = Utilities.getUuid().replace(/-/g, '').slice(0, 12);
     props.setProperty('TOKEN', token);
   }
+  // Carpeta de Drive para fotos y cotizaciones (aquí Google pide el permiso de Drive)
+  const carpeta = carpetaRaiz_();
+  Logger.log('📁 Carpeta de archivos en Drive: ' + carpeta.getName());
   Logger.log('✅ Planilla lista. TOKEN de acceso para la app: ' + token);
   return token;
 }
@@ -214,7 +223,12 @@ const ACTIONS = {
   saveCliente: function (r) { return withLock_(function () { return saveSimple_('Clientes', 'CLI', r.item, validarCliente_); }); },
   saveSolicitante: function (r) { return withLock_(function () { return saveSimple_('Solicitantes', 'SOL', r.item, validarSolicitante_); }); },
   saveUbicacion: function (r) { return withLock_(function () { return saveSimple_('Ubicaciones', 'UBI', r.item, validarUbicacion_); }); },
-  saveOT: function (r) { return withLock_(function () { return saveOT_(r.ot, r.lineas || []); }); }
+  saveOT: function (r) { return withLock_(function () { return saveOT_(r.ot, r.lineas || []); }); },
+  getFotos: function (r) { return getFotos_(r.nOT); },
+  uploadFoto: function (r) { return withLock_(function () { return uploadFoto_(r); }); },
+  updateFoto: function (r) { return withLock_(function () { return updateFoto_(r.item); }); },
+  deleteFoto: function (r) { return withLock_(function () { return deleteFoto_(r.id); }); },
+  saveCotizacion: function (r) { return withLock_(function () { return saveCotizacion_(r); }); }
 };
 
 function getAll_() {
@@ -226,7 +240,9 @@ function getAll_() {
     solicitantes: readTable_('Solicitantes'),
     ubicaciones: readTable_('Ubicaciones'),
     ots: readTable_('OT'),
-    lineas: readTable_('OT_Lineas')
+    lineas: readTable_('OT_Lineas'),
+    fotos: readTable_('Fotos'),
+    cotizaciones: readTable_('Cotizaciones')
   };
 }
 
@@ -449,6 +465,107 @@ function replaceLineas_(nOT, nuevas) {
   if (lastRow > 1) sh.getRange(2, 1, lastRow - 1, cols.length).clearContent();
   if (filas.length) sh.getRange(2, 1, filas.length, cols.length).setValues(filas);
 }
+
+// ════════════════════════════════════════════════════════════ DRIVE: FOTOS Y COTIZACIONES
+const CARPETA_RAIZ = 'Mantenciones OSC — Archivos';
+
+function carpetaRaiz_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('ROOT_FOLDER');
+  if (id) {
+    try { const f = DriveApp.getFolderById(id); if (!f.isTrashed()) return f; } catch (e) { /* se recrea */ }
+  }
+  const f = DriveApp.createFolder(CARPETA_RAIZ);
+  props.setProperty('ROOT_FOLDER', f.getId());
+  return f;
+}
+
+function carpetaOT_(nOT) {
+  const raiz = carpetaRaiz_();
+  const nombre = 'OT-' + String(nOT).padStart(4, '0');
+  const it = raiz.getFoldersByName(nombre);
+  return it.hasNext() ? it.next() : raiz.createFolder(nombre);
+}
+
+function otExiste_(nOT) {
+  const ot = readTable_('OT').find(function (o) { return String(o.nOT) === String(nOT); });
+  if (!ot) throw new Error('No existe la OT ' + nOT + '. Guárdala antes de agregar fotos o cotizaciones.');
+  return ot;
+}
+
+function getFotos_(nOT) {
+  const fotos = readTable_('Fotos').filter(function (f) { return String(f.nOT) === String(nOT); });
+  return {
+    fotos: fotos.map(function (f) {
+      let data = '';
+      try { data = Utilities.base64Encode(DriveApp.getFileById(f.fileId).getBlob().getBytes()); } catch (e) { /* archivo borrado en Drive */ }
+      return Object.assign({}, f, { data: data });
+    })
+  };
+}
+
+function uploadFoto_(r) {
+  const ot = otExiste_(r.nOT);
+  if (ot.folioSII) throw new Error('La OT ya está facturada');
+  if (!r.data) throw new Error('Falta la imagen');
+  const etapa = ETAPAS_FOTO.indexOf(r.etapa) !== -1 ? r.etapa : 'Durante';
+  const ahora = new Date();
+  const nombre = 'OT-' + String(r.nOT).padStart(4, '0') + '_' + slug_(etapa) + '_' +
+    Utilities.formatDate(ahora, TZ, 'yyyyMMdd-HHmmss') + '_' + Utilities.getUuid().slice(0, 4) + '.jpg';
+  const blob = Utilities.newBlob(Utilities.base64Decode(r.data), 'image/jpeg', nombre);
+  const file = carpetaOT_(r.nOT).createFile(blob);
+  const obj = {
+    id: 'F-' + Utilities.getUuid().slice(0, 8),
+    nOT: Number(r.nOT), fecha: today_(), etapa: etapa,
+    descripcion: String(r.descripcion || '').trim(),
+    fileId: file.getId(), url: file.getUrl(),
+    enPresupuesto: r.enPresupuesto !== false
+  };
+  upsert_('Fotos', 'id', obj);
+  return { item: obj };
+}
+
+function updateFoto_(item) {
+  if (!item || !item.id) throw new Error('Falta la foto');
+  const prev = readTable_('Fotos').find(function (f) { return f.id === item.id; });
+  if (!prev) throw new Error('Foto no encontrada');
+  const obj = Object.assign({}, prev, {
+    etapa: ETAPAS_FOTO.indexOf(item.etapa) !== -1 ? item.etapa : prev.etapa,
+    descripcion: String(item.descripcion == null ? prev.descripcion : item.descripcion).trim(),
+    enPresupuesto: item.enPresupuesto !== false
+  });
+  upsert_('Fotos', 'id', obj);
+  return { item: obj };
+}
+
+function deleteFoto_(id) {
+  const sh = sheet_('Fotos');
+  const rows = readTable_('Fotos');
+  const idx = rows.findIndex(function (f) { return f.id === id; });
+  if (idx === -1) throw new Error('Foto no encontrada');
+  try { DriveApp.getFileById(rows[idx].fileId).setTrashed(true); } catch (e) { /* ya no estaba */ }
+  sh.deleteRow(idx + 2);
+  return { ok: true, id: id };
+}
+
+function saveCotizacion_(r) {
+  otExiste_(r.nOT);
+  if (!r.pdf) throw new Error('Falta el PDF');
+  const previas = readTable_('Cotizaciones').filter(function (c) { return String(c.nOT) === String(r.nOT); });
+  const maxV = previas.reduce(function (m, c) { return Math.max(m, Number(c.version) || 0); }, 0);
+  const version = Number(r.version) > maxV ? Number(r.version) : maxV + 1;
+  const nombre = 'Cotizacion_OT-' + String(r.nOT).padStart(4, '0') + '_v' + version + '.pdf';
+  const blob = Utilities.newBlob(Utilities.base64Decode(r.pdf), 'application/pdf', nombre);
+  const file = carpetaOT_(r.nOT).createFile(blob);
+  const obj = {
+    id: 'COT-' + r.nOT + '-' + version, nOT: Number(r.nOT), version: version, fecha: now_(),
+    neto: num_(r.neto), total: num_(r.total), pdfUrl: file.getUrl(), fileId: file.getId()
+  };
+  upsert_('Cotizaciones', 'id', obj);
+  return { item: obj };
+}
+
+function slug_(s) { return normTxt_(s).replace(/[^a-z0-9]+/g, '-'); }
 
 // ════════════════════════════════════════════════════════════ UTILIDADES DE HOJA
 function sheet_(name) {
