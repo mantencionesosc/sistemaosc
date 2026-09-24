@@ -220,7 +220,17 @@ function doPost(e) {
 
     const fn = ACTIONS[req.action];
     if (!fn) return json_({ error: 'Acción desconocida: ' + req.action });
-    return json_(fn(req));
+
+    // Idempotencia: si Google no entregó la respuesta y la app reintenta la misma petición (mismo reqId),
+    // se devuelve el resultado ya calculado en vez de volver a escribir (evita OT o fotos duplicadas).
+    const cache = CacheService.getScriptCache();
+    if (req.reqId) {
+      const previo = cache.get('req_' + req.reqId);
+      if (previo) return ContentService.createTextOutput(previo).setMimeType(ContentService.MimeType.JSON);
+    }
+    const out = JSON.stringify(fn(req));
+    if (req.reqId && out.length < 90000) { try { cache.put('req_' + req.reqId, out, 600); } catch (e) { /* sin caché */ } }
+    return ContentService.createTextOutput(out).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return json_({ error: String(err && err.message || err) });
   }
@@ -232,6 +242,9 @@ const ACTIONS = {
   saveConfig: function (r) { return withLock_(function () { return saveConfig_(r.values || {}); }); },
   saveCategoria: function (r) { return withLock_(function () { return saveCategoria_(r.item); }); },
   saveTipoItem: function (r) { return withLock_(function () { return saveTipoItem_(r.item); }); },
+  // Guardado en lote: una sola petición para varias filas
+  saveCategorias: function (r) { return withLock_(function () { return { items: (r.items || []).map(saveCategoria_) }; }); },
+  saveTiposItem: function (r) { return withLock_(function () { return { items: (r.items || []).map(saveTipoItem_) }; }); },
   saveCliente: function (r) { return withLock_(function () { return saveSimple_('Clientes', 'CLI', r.item, validarCliente_); }); },
   saveSolicitante: function (r) { return withLock_(function () { return saveSimple_('Solicitantes', 'SOL', r.item, validarSolicitante_); }); },
   saveUbicacion: function (r) { return withLock_(function () { return saveSimple_('Ubicaciones', 'UBI', r.item, validarUbicacion_); }); },

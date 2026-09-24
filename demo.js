@@ -138,6 +138,8 @@ const Demo = (() => {
       upsert(d.tiposItem, 'id', o);
       return { item: clone(o) };
     },
+    saveCategorias: ({ items }) => ({ items: items.map(item => actions.saveCategoria({ item }).item) }),
+    saveTiposItem: ({ items }) => ({ items: items.map(item => actions.saveTipoItem({ item }).item) }),
     saveCliente: ({ item }) => saveSimple('clientes', 'CLI', item, o => { if (!String(o.razonSocial || '').trim()) throw new Error('El cliente necesita razón social'); }),
     saveSolicitante: ({ item }) => saveSimple('solicitantes', 'SOL', item, o => { if (!String(o.nombre || '').trim()) throw new Error('El solicitante necesita nombre'); }),
     saveUbicacion: ({ item }) => saveSimple('ubicaciones', 'UBI', item, o => { if (!String(o.edificio || '').trim()) throw new Error('La ubicación necesita el nombre del edificio'); }),

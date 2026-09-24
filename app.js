@@ -113,25 +113,28 @@ function toast(msg, tipo = 'load', dur = 2600) {
 }
 
 // ════════════════════════════════════════════════════════ API
-async function api(action, body = {}, intento = 1) {
+async function api(action, body = {}, intento = 1, reqId = '') {
   if (DEMO) return Demo.call(action, body);
+  // Mismo reqId en todos los reintentos: si Google ya ejecutó la petición pero no entregó la respuesta,
+  // el servidor devuelve el resultado guardado en vez de repetir la escritura.
+  reqId = reqId || Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   if (!API_URL || !TOKEN) throw new Error('Falta conectar la planilla (Config)');
   let texto;
   try {
     const res = await fetch(API_URL, {
       method: 'POST',
-      body: JSON.stringify(Object.assign({ action, token: TOKEN }, body)),
+      body: JSON.stringify(Object.assign({ action, token: TOKEN, reqId }, body)),
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }
     });
     texto = await res.text();
   } catch (e) {
-    if (intento < 3) { await new Promise(r => setTimeout(r, 800 * intento)); return api(action, body, intento + 1); }
+    if (intento < 3) { await new Promise(r => setTimeout(r, 800 * intento)); return api(action, body, intento + 1, reqId); }
     throw new Error('Sin conexión con la planilla. Revisa la señal e inténtalo de nuevo.');
   }
   let d;
   try { d = JSON.parse(texto); } catch (e) {
     // Google a veces entrega una página de error intermitente: se reintenta
-    if (intento < 5) { await new Promise(r => setTimeout(r, 700 * intento)); return api(action, body, intento + 1); }
+    if (intento < 5) { await new Promise(r => setTimeout(r, 700 * intento)); return api(action, body, intento + 1, reqId); }
     throw new Error('Google no entregó una respuesta válida. Prueba de nuevo en unos segundos.');
   }
   if (d.error) throw new Error(d.error);
@@ -1055,7 +1058,7 @@ function renderConfig(app) {
       <button class="btn btn-primary btn-full" style="margin-top:14px" id="q-ok">Guardar</button>
     </div>` : ''}
 
-    <p class="hint" style="text-align:center;margin:18px 0">Mantenciones OSC · versión 2.1</p>`;
+    <p class="hint" style="text-align:center;margin:18px 0">Mantenciones OSC · versión 2.1.1</p>`;
 
   $('#k-ok').onclick = async () => {
     const url = $('#k-url').value.trim(), tok = $('#k-token').value.trim();
@@ -1128,10 +1131,9 @@ function renderConfig(app) {
     if (!cambios.length) { toast('No hay cambios', 'ok', 1200); return; }
     const btn = $('#cat-ok'); btn.disabled = true; toast('Guardando categorías…');
     try {
-      for (const item of cambios) {
-        const r = await api('saveCategoria', { item });
-        S.categorias = S.categorias.filter(c => c.id !== r.item.id).concat([r.item]);
-      }
+      const r = await api('saveCategorias', { items: cambios });
+      const ids = new Set(r.items.map(x => x.id));
+      S.categorias = S.categorias.filter(c => !ids.has(c.id)).concat(r.items);
       guardarCache(); toast('✓ Categorías guardadas', 'ok'); renderConfig(app);
     } catch (e) { toast('No se guardó: ' + e.message, 'err'); btn.disabled = false; }
   };
@@ -1153,10 +1155,9 @@ function renderConfig(app) {
     if (!cambios.length) { toast('No hay cambios', 'ok', 1200); return; }
     const btn = $('#tipo-ok'); btn.disabled = true; toast('Guardando tipos…');
     try {
-      for (const item of cambios) {
-        const r = await api('saveTipoItem', { item });
-        S.tiposItem = S.tiposItem.filter(t => t.id !== r.item.id).concat([r.item]);
-      }
+      const r = await api('saveTiposItem', { items: cambios });
+      const ids = new Set(r.items.map(x => x.id));
+      S.tiposItem = S.tiposItem.filter(t => !ids.has(t.id)).concat(r.items);
       guardarCache(); toast('✓ Tipos guardados', 'ok'); renderConfig(app);
     } catch (e) { toast('No se guardó: ' + e.message, 'err'); btn.disabled = false; }
   };
