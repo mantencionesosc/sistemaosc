@@ -18,7 +18,11 @@ const SCHEMA = {
     ['clave', 'Clave'], ['valor', 'Valor'], ['descripcion', 'Descripción']
   ],
   Categorias: [
-    ['id', 'ID'], ['nombre', 'Nombre'], ['factor', 'Factor'], ['orden', 'Orden'], ['activa', 'Activa']
+    ['id', 'ID'], ['nombre', 'Nombre'], ['factor', 'Factor'], ['orden', 'Orden'], ['activa', 'Activa'],
+    ['uso', 'Uso']  // 'Gestión' (tiempo de gestión de compras) u 'Oficio' (mano de obra)
+  ],
+  TiposItem: [
+    ['id', 'ID'], ['nombre', 'Nombre'], ['orden', 'Orden'], ['activo', 'Activo']
   ],
   Clientes: [
     ['id', 'ID'], ['razonSocial', 'Razón social'], ['nombreCorto', 'Nombre corto'], ['rut', 'RUT'],
@@ -41,14 +45,16 @@ const SCHEMA = {
     ['titulo', 'Título'], ['descripcion', 'Descripción'], ['estado', 'Estado'],
     ['nOC', 'N° OC'], ['folioSII', 'Folio SII'],
     ['neto', 'Neto'], ['ivaPct', 'IVA %'], ['iva', 'IVA'], ['total', 'Total'],
-    ['notas', 'Notas'], ['creada', 'Creada'], ['actualizada', 'Actualizada']
+    ['notas', 'Notas'], ['creada', 'Creada'], ['actualizada', 'Actualizada'],
+    ['detallar', 'Detallar en cotización']  // IDs de tipos de ítem a desglosar, separados por coma
   ],
   OT_Lineas: [
     ['id', 'ID'], ['nOT', 'N° OT'], ['orden', 'Orden'], ['fecha', 'Fecha'], ['tipo', 'Tipo'],
     ['categoriaId', 'Categoría ID'], ['categoria', 'Categoría'], ['descripcion', 'Descripción'],
     ['horas', 'Horas'], ['hh', 'HH aplicado'], ['factor', 'Factor aplicado'],
     ['cantidad', 'Cantidad'], ['costoUnit', 'Costo unitario'], ['recargoPct', '% Recargo'],
-    ['monto', 'Monto'], ['incluida', 'Incluida']
+    ['monto', 'Monto'], ['incluida', 'Incluida'],
+    ['tipoItemId', 'Tipo de ítem ID'], ['tipoItem', 'Tipo de ítem']
   ],
   // Hojas de etapas siguientes (se crean ahora para dejar la estructura lista)
   Fotos: [
@@ -80,7 +86,7 @@ const TEXT_COLS = {
 const CONFIG_DEFAULTS = [
   ['HH_BASE', 0, 'Valor hora base (CLP, neto). Mano de obra = horas × HH base × factor de la categoría'],
   ['IVA_PCT', 19, 'IVA en %'],
-  ['RECARGO_MATERIALES_PCT', 0, '% de recargo por defecto sobre el costo de materiales (0 = al costo)'],
+  ['RECARGO_MATERIALES_PCT', 0, '% de recargo sobre los ítems de gestión de compras (0 = al costo)'],
   ['EMPRESA_NOMBRE', 'Mantenciones OSC', 'Nombre de fantasía'],
   ['EMPRESA_RAZON_SOCIAL', '', 'Razón social (como aparece en el SII)'],
   ['EMPRESA_RUT', '', 'RUT de la empresa'],
@@ -93,6 +99,8 @@ const CONFIG_DEFAULTS = [
 const CATEGORIAS_DEFAULT = [
   'Gestión de compras', 'Mantenciones (varios)', 'Electricidad', 'Mueblería', 'Carpintería', 'Gasfitería'
 ];
+const TIPOS_ITEM_DEFAULT = ['Material', 'Insumo', 'Arriendo de herramienta', 'Flete / transporte', 'Combustible'];
+const TIPOS_LINEA = ['Compra', 'Tiempo de gestión', 'Mano de obra'];
 
 const ESTADOS_OT = ['Pendiente', 'En curso', 'Terminada', 'Anulada'];
 const TZ = 'America/Santiago';
@@ -124,8 +132,30 @@ function setup() {
   // Categorías por defecto (factor 1,0: ajústalo en la app → Config)
   if (readTable_('Categorias').length === 0) {
     const catSh = ss.getSheetByName('Categorias');
-    CATEGORIAS_DEFAULT.forEach(function (n, i) { catSh.appendRow(['CAT-' + (i + 1), n, 1, i + 1, true]); });
+    CATEGORIAS_DEFAULT.forEach(function (n, i) {
+      catSh.appendRow(['CAT-' + (i + 1), n, 1, i + 1, true, i === 0 ? 'Gestión' : 'Oficio']);
+    });
+  } else {
+    // Migración: completa la columna Uso en categorías antiguas
+    const catSh = ss.getSheetByName('Categorias');
+    const usoCol = SCHEMA.Categorias.findIndex(function (c) { return c[0] === 'uso'; }) + 1;
+    readTable_('Categorias').forEach(function (c, i) {
+      if (!c.uso) catSh.getRange(i + 2, usoCol).setValue(normTxt_(c.nombre) === 'gestion de compras' ? 'Gestión' : 'Oficio');
+    });
   }
+
+  // Tipos de ítem de compra por defecto
+  if (readTable_('TiposItem').length === 0) {
+    const tSh = ss.getSheetByName('TiposItem');
+    TIPOS_ITEM_DEFAULT.forEach(function (n, i) { tSh.appendRow(['TIP-' + (i + 1), n, i + 1, true]); });
+  }
+
+  // Actualiza descripciones de Config
+  const cfgRows = readTable_('Config');
+  CONFIG_DEFAULTS.forEach(function (d) {
+    const idx = cfgRows.findIndex(function (r) { return r.clave === d[0]; });
+    if (idx !== -1) cfgSh.getRange(idx + 2, 3).setValue(d[2]);
+  });
 
   // Cliente inicial
   if (readTable_('Clientes').length === 0) {
@@ -180,6 +210,7 @@ const ACTIONS = {
   getAll: getAll_,
   saveConfig: function (r) { return withLock_(function () { return saveConfig_(r.values || {}); }); },
   saveCategoria: function (r) { return withLock_(function () { return saveCategoria_(r.item); }); },
+  saveTipoItem: function (r) { return withLock_(function () { return saveTipoItem_(r.item); }); },
   saveCliente: function (r) { return withLock_(function () { return saveSimple_('Clientes', 'CLI', r.item, validarCliente_); }); },
   saveSolicitante: function (r) { return withLock_(function () { return saveSimple_('Solicitantes', 'SOL', r.item, validarSolicitante_); }); },
   saveUbicacion: function (r) { return withLock_(function () { return saveSimple_('Ubicaciones', 'UBI', r.item, validarUbicacion_); }); },
@@ -190,6 +221,7 @@ function getAll_() {
   return {
     config: configObj_(),
     categorias: readTable_('Categorias'),
+    tiposItem: readTable_('TiposItem'),
     clientes: readTable_('Clientes'),
     solicitantes: readTable_('Solicitantes'),
     ubicaciones: readTable_('Ubicaciones'),
@@ -232,14 +264,32 @@ function saveCategoria_(item) {
   const factor = num_(item.factor);
   if (!(factor > 0)) throw new Error('El factor debe ser mayor que 0');
   const rows = readTable_('Categorias');
+  const prev = item.id ? rows.find(function (c) { return c.id === item.id; }) : null;
   const obj = {
     id: item.id || nextId_('CAT', rows, 'id'),
     nombre: nombre,
     factor: factor,
     orden: item.orden != null && item.orden !== '' ? num_(item.orden) : rows.length + 1,
-    activa: item.activa !== false
+    activa: item.activa !== false,
+    uso: prev && prev.uso ? prev.uso : 'Oficio'  // el uso no se cambia desde la app
   };
+  if (obj.uso === 'Gestión' && !obj.activa) throw new Error('La categoría de gestión de compras no se puede desactivar');
   upsert_('Categorias', 'id', obj);
+  return { item: obj };
+}
+
+function saveTipoItem_(item) {
+  if (!item) throw new Error('Falta el tipo de ítem');
+  const nombre = String(item.nombre || '').trim();
+  if (!nombre) throw new Error('El tipo de ítem necesita un nombre');
+  const rows = readTable_('TiposItem');
+  const obj = {
+    id: item.id || nextId_('TIP', rows, 'id'),
+    nombre: nombre,
+    orden: item.orden != null && item.orden !== '' ? num_(item.orden) : rows.length + 1,
+    activo: item.activo !== false
+  };
+  upsert_('TiposItem', 'id', obj);
   return { item: obj };
 }
 
@@ -298,9 +348,10 @@ function saveOT_(ot, lineas) {
   // Líneas: se recalcula el monto en el servidor con los valores congelados de cada línea
   const cfg = configObj_();
   const cats = readTable_('Categorias');
+  const tipos = readTable_('TiposItem');
   const nOT = esNueva ? nextNumber_(ots, 'nOT') : Number(ot.nOT);
   const hoy = today_();
-  const lineasOk = lineas.map(function (l, i) { return normalizarLinea_(l, i, nOT, cfg, cats, hoy); });
+  const lineasOk = lineas.map(function (l, i) { return normalizarLinea_(l, i, nOT, cfg, cats, tipos, hoy); });
 
   const neto = lineasOk.reduce(function (s, l) { return s + (l.incluida ? l.monto : 0); }, 0);
   const ivaPct = previa && previa.ivaPct !== '' && previa.ivaPct != null ? num_(previa.ivaPct) : num_(cfg.IVA_PCT);
@@ -326,7 +377,9 @@ function saveOT_(ot, lineas) {
     total: neto + iva,
     notas: String(ot.notas || ''),
     creada: previa ? previa.creada : now_(),
-    actualizada: now_()
+    actualizada: now_(),
+    detallar: String(ot.detallar || '').split(',').map(function (x) { return x.trim(); })
+      .filter(function (x) { return x && tipos.some(function (t) { return t.id === x; }); }).join(',')
   };
 
   upsert_('OT', 'nOT', obj);
@@ -334,44 +387,51 @@ function saveOT_(ot, lineas) {
   return { ot: obj, lineas: lineasOk };
 }
 
-function normalizarLinea_(l, i, nOT, cfg, cats, hoy) {
-  const tipo = l.tipo === 'Material' ? 'Material' : 'Mano de obra';
+function normalizarLinea_(l, i, nOT, cfg, cats, tipos, hoy) {
+  let tipo = l.tipo === 'Material' ? 'Compra' : l.tipo;  // compatibilidad con la versión anterior
+  if (TIPOS_LINEA.indexOf(tipo) === -1) tipo = 'Mano de obra';
+  const n = 'La línea ' + (i + 1);
   const desc = String(l.descripcion || '').trim();
-  if (!desc) throw new Error('La línea ' + (i + 1) + ' no tiene descripción');
+  if (!desc) throw new Error(n + ' no tiene descripción');
   const o = {
     id: l.id || ('L-' + nOT + '-' + Utilities.getUuid().slice(0, 8)),
-    nOT: nOT,
-    orden: i + 1,
-    fecha: l.fecha || hoy,
-    tipo: tipo,
-    categoriaId: '', categoria: '',
-    descripcion: desc,
-    horas: '', hh: '', factor: '',
-    cantidad: '', costoUnit: '', recargoPct: '',
-    monto: 0,
-    incluida: l.incluida !== false
+    nOT: nOT, orden: i + 1, fecha: l.fecha || hoy, tipo: tipo,
+    categoriaId: '', categoria: '', descripcion: desc,
+    horas: '', hh: '', factor: '', cantidad: '', costoUnit: '', recargoPct: '',
+    monto: 0, incluida: l.incluida !== false, tipoItemId: '', tipoItem: ''
   };
-  if (tipo === 'Mano de obra') {
-    const cat = cats.find(function (c) { return c.id === l.categoriaId; });
-    if (!cat) throw new Error('La línea ' + (i + 1) + ' necesita una categoría');
-    const horas = num_(l.horas);
-    if (horas < 1) throw new Error('La línea ' + (i + 1) + ': mínimo 1 hora');
-    if (Math.round(horas * 2) !== horas * 2) throw new Error('La línea ' + (i + 1) + ': las horas van de media en media (1; 1,5; 2…)');
-    // Valores congelados: si la línea ya los trae se respetan; si es nueva se toman de Config
-    const hh = l.hh !== '' && l.hh != null ? num_(l.hh) : num_(cfg.HH_BASE);
-    const factor = l.factor !== '' && l.factor != null ? num_(l.factor) : num_(cat.factor);
-    o.categoriaId = cat.id; o.categoria = cat.nombre;
-    o.horas = horas; o.hh = hh; o.factor = factor;
-    o.monto = Math.round(horas * hh * factor);
-  } else {
+  if (tipo === 'Compra') {
+    const t = tipos.find(function (x) { return x.id === l.tipoItemId; });
+    if (!t) throw new Error(n + ': elige el tipo de ítem (material, insumo…)');
     const cant = num_(l.cantidad);
-    if (!(cant > 0)) throw new Error('La línea ' + (i + 1) + ': la cantidad debe ser mayor que 0');
+    if (!(cant > 0)) throw new Error(n + ': la cantidad debe ser mayor que 0');
     const costo = num_(l.costoUnit);
-    if (costo < 0) throw new Error('La línea ' + (i + 1) + ': costo inválido');
+    if (costo < 0) throw new Error(n + ': costo inválido');
     const rec = l.recargoPct !== '' && l.recargoPct != null ? num_(l.recargoPct) : num_(cfg.RECARGO_MATERIALES_PCT);
+    o.tipoItemId = t.id; o.tipoItem = t.nombre;
     o.cantidad = cant; o.costoUnit = costo; o.recargoPct = rec;
     o.monto = Math.round(cant * costo * (1 + rec / 100));
+    return o;
   }
+  // Horas (Tiempo de gestión o Mano de obra)
+  let cat;
+  if (tipo === 'Tiempo de gestión') {
+    cat = cats.find(function (c) { return c.uso === 'Gestión'; });
+    if (!cat) throw new Error('Falta la categoría de Gestión de compras. Ejecuta setup() en Apps Script.');
+  } else {
+    cat = cats.find(function (c) { return c.id === l.categoriaId; });
+    if (!cat) throw new Error(n + ' necesita una categoría');
+    if (cat.uso === 'Gestión') throw new Error(n + ': el tiempo de gestión de compras va en su propio bloque');
+  }
+  const horas = num_(l.horas);
+  if (horas < 1) throw new Error(n + ': mínimo 1 hora');
+  if (Math.round(horas * 2) !== horas * 2) throw new Error(n + ': las horas van de media en media (1; 1,5; 2…)');
+  // Valores congelados: si la línea ya los trae se respetan; si es nueva se toman de Config
+  const hh = l.hh !== '' && l.hh != null ? num_(l.hh) : num_(cfg.HH_BASE);
+  const factor = l.factor !== '' && l.factor != null ? num_(l.factor) : num_(cat.factor);
+  o.categoriaId = cat.id; o.categoria = cat.nombre;
+  o.horas = horas; o.hh = hh; o.factor = factor;
+  o.monto = Math.round(horas * hh * factor);
   return o;
 }
 
@@ -457,6 +517,10 @@ function withLock_(fn) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try { return fn(); } finally { lock.releaseLock(); }
+}
+
+function normTxt_(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 }
 
 function num_(v) {

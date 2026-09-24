@@ -3,10 +3,12 @@
  * Sirve para probar la app antes de conectar la planilla. Nada de esto llega a Google Sheets.
  */
 const Demo = (() => {
-  const KEY = 'osc_demo_db';
+  const KEY = 'osc_demo_db_v2';
 
   function seed() {
     const hoy = new Date().toISOString().slice(0, 10);
+    const L = (k, orden, tipo, x) => Object.assign({ id: 'L-1-' + k, nOT: 1, orden, fecha: hoy, tipo, categoriaId: '', categoria: '', descripcion: '',
+      horas: '', hh: '', factor: '', cantidad: '', costoUnit: '', recargoPct: '', monto: 0, incluida: true, tipoItemId: '', tipoItem: '' }, x);
     return {
       config: {
         HH_BASE: 10000, IVA_PCT: 19, RECARGO_MATERIALES_PCT: 10,
@@ -14,12 +16,19 @@ const Demo = (() => {
         EMPRESA_GIRO: '', EMPRESA_DIRECCION: '', EMPRESA_TELEFONO: '', EMPRESA_CORREO: ''
       },
       categorias: [
-        { id: 'CAT-1', nombre: 'Gestión de compras', factor: 1, orden: 1, activa: true },
-        { id: 'CAT-2', nombre: 'Mantenciones (varios)', factor: 1, orden: 2, activa: true },
-        { id: 'CAT-3', nombre: 'Electricidad', factor: 1.5, orden: 3, activa: true },
-        { id: 'CAT-4', nombre: 'Mueblería', factor: 1.3, orden: 4, activa: true },
-        { id: 'CAT-5', nombre: 'Carpintería', factor: 1.3, orden: 5, activa: true },
-        { id: 'CAT-6', nombre: 'Gasfitería', factor: 1.5, orden: 6, activa: true }
+        { id: 'CAT-1', nombre: 'Gestión de compras', factor: 1, orden: 1, activa: true, uso: 'Gestión' },
+        { id: 'CAT-2', nombre: 'Mantenciones (varios)', factor: 1, orden: 2, activa: true, uso: 'Oficio' },
+        { id: 'CAT-3', nombre: 'Electricidad', factor: 1.5, orden: 3, activa: true, uso: 'Oficio' },
+        { id: 'CAT-4', nombre: 'Mueblería', factor: 1.3, orden: 4, activa: true, uso: 'Oficio' },
+        { id: 'CAT-5', nombre: 'Carpintería', factor: 1.3, orden: 5, activa: true, uso: 'Oficio' },
+        { id: 'CAT-6', nombre: 'Gasfitería', factor: 1.5, orden: 6, activa: true, uso: 'Oficio' }
+      ],
+      tiposItem: [
+        { id: 'TIP-1', nombre: 'Material', orden: 1, activo: true },
+        { id: 'TIP-2', nombre: 'Insumo', orden: 2, activo: true },
+        { id: 'TIP-3', nombre: 'Arriendo de herramienta', orden: 3, activo: true },
+        { id: 'TIP-4', nombre: 'Flete / transporte', orden: 4, activo: true },
+        { id: 'TIP-5', nombre: 'Combustible', orden: 5, activo: true }
       ],
       clientes: [
         { id: 'CLI-1', razonSocial: 'Universidad de Concepción', nombreCorto: 'UdeC', rut: '', giro: '', direccion: '', comuna: 'Concepción', contacto: '', correo: '', telefono: '', activo: true }
@@ -34,14 +43,17 @@ const Demo = (() => {
         { nOT: 1, fechaInicio: hoy, clienteId: 'CLI-1', cliente: 'UdeC', solicitanteId: 'SOL-1', solicitante: 'Jefa de ejemplo',
           ubicacionId: 'UBI-1', ubicacion: 'Edificio de ejemplo — Baño 2° piso', titulo: 'Cambio de lavamanos',
           descripcion: 'La jefa pide cambiar el lavamanos del baño del 2° piso.', estado: 'En curso',
-          nOC: '', folioSII: '', neto: 114500, ivaPct: 19, iva: 21755, total: 136255, notas: '', creada: hoy, actualizada: hoy }
+          nOC: '', folioSII: '', neto: 128390, ivaPct: 19, iva: 24394, total: 152784, notas: '', creada: hoy, actualizada: hoy, detallar: '' }
       ],
       lineas: [
-        { id: 'L-1-a', nOT: 1, orden: 1, fecha: hoy, tipo: 'Mano de obra', categoriaId: 'CAT-6', categoria: 'Gasfitería', descripcion: 'Desinstalación de lavamanos', horas: 1, hh: 10000, factor: 1.5, cantidad: '', costoUnit: '', recargoPct: '', monto: 15000, incluida: true },
-        { id: 'L-1-b', nOT: 1, orden: 2, fecha: hoy, tipo: 'Mano de obra', categoriaId: 'CAT-1', categoria: 'Gestión de compras', descripcion: 'Cotización y compra de lavamanos e insumos', horas: 2, hh: 10000, factor: 1, cantidad: '', costoUnit: '', recargoPct: '', monto: 20000, incluida: true },
-        { id: 'L-1-c', nOT: 1, orden: 3, fecha: hoy, tipo: 'Material', categoriaId: '', categoria: '', descripcion: 'Lavamanos loza blanco', horas: '', hh: '', factor: '', cantidad: 1, costoUnit: 45000, recargoPct: 10, monto: 49500, incluida: true },
-        { id: 'L-1-d', nOT: 1, orden: 4, fecha: hoy, tipo: 'Material', categoriaId: '', categoria: '', descripcion: 'Lavamanos opción 2 (descartado)', horas: '', hh: '', factor: '', cantidad: 1, costoUnit: 62000, recargoPct: 10, monto: 68200, incluida: false },
-        { id: 'L-1-e', nOT: 1, orden: 5, fecha: hoy, tipo: 'Mano de obra', categoriaId: 'CAT-6', categoria: 'Gasfitería', descripcion: 'Instalación de lavamanos y conexiones', horas: 2, hh: 10000, factor: 1.5, cantidad: '', costoUnit: '', recargoPct: '', monto: 30000, incluida: true }
+        L('a', 1, 'Compra', { tipoItemId: 'TIP-1', tipoItem: 'Material', descripcion: 'Lavamanos loza blanco (Sodimac)', cantidad: 1, costoUnit: 45000, recargoPct: 10, monto: 49500 }),
+        L('b', 2, 'Compra', { tipoItemId: 'TIP-1', tipoItem: 'Material', descripcion: 'Lavamanos Fanaloza (Easy)', cantidad: 1, costoUnit: 62000, recargoPct: 10, monto: 68200, incluida: false }),
+        L('c', 3, 'Compra', { tipoItemId: 'TIP-2', tipoItem: 'Insumo', descripcion: 'Sifón + flexibles', cantidad: 1, costoUnit: 8900, recargoPct: 10, monto: 9790 }),
+        L('d', 4, 'Compra', { tipoItemId: 'TIP-4', tipoItem: 'Flete / transporte', descripcion: 'Flete', cantidad: 1, costoUnit: 6000, recargoPct: 10, monto: 6600 }),
+        L('e', 5, 'Tiempo de gestión', { categoriaId: 'CAT-1', categoria: 'Gestión de compras', descripcion: 'Cotizar en 2 ferreterías', horas: 1, hh: 10000, factor: 1, monto: 10000 }),
+        L('f', 6, 'Tiempo de gestión', { categoriaId: 'CAT-1', categoria: 'Gestión de compras', descripcion: 'Compra y retiro', horas: 1.5, hh: 10000, factor: 1, monto: 15000 }),
+        L('g', 7, 'Mano de obra', { categoriaId: 'CAT-6', categoria: 'Gasfitería', descripcion: 'Desinstalación de lavamanos', horas: 1, hh: 10000, factor: 1.5, monto: 15000 }),
+        L('h', 8, 'Mano de obra', { categoriaId: 'CAT-6', categoria: 'Gasfitería', descripcion: 'Instalación de lavamanos y conexiones', horas: 1.5, hh: 10000, factor: 1.5, monto: 22500 })
       ]
     };
   }
@@ -81,8 +93,17 @@ const Demo = (() => {
       const d = load();
       if (!String(item.nombre || '').trim()) throw new Error('La categoría necesita un nombre');
       if (!(num(item.factor) > 0)) throw new Error('El factor debe ser mayor que 0');
-      const o = { id: item.id || nextId('CAT', d.categorias), nombre: item.nombre.trim(), factor: num(item.factor), orden: item.orden || d.categorias.length + 1, activa: item.activa !== false };
+      const prev = d.categorias.find(c => c.id === item.id);
+      const o = { id: item.id || nextId('CAT', d.categorias), nombre: item.nombre.trim(), factor: num(item.factor), orden: item.orden || d.categorias.length + 1, activa: item.activa !== false, uso: prev && prev.uso ? prev.uso : 'Oficio' };
+      if (o.uso === 'Gestión' && !o.activa) throw new Error('La categoría de gestión de compras no se puede desactivar');
       upsert(d.categorias, 'id', o);
+      return { item: clone(o) };
+    },
+    saveTipoItem: ({ item }) => {
+      const d = load();
+      if (!String(item.nombre || '').trim()) throw new Error('El tipo de ítem necesita un nombre');
+      const o = { id: item.id || nextId('TIP', d.tiposItem), nombre: item.nombre.trim(), orden: item.orden || d.tiposItem.length + 1, activo: item.activo !== false };
+      upsert(d.tiposItem, 'id', o);
       return { item: clone(o) };
     },
     saveCliente: ({ item }) => saveSimple('clientes', 'CLI', item, o => { if (!String(o.razonSocial || '').trim()) throw new Error('El cliente necesita razón social'); }),
@@ -101,7 +122,7 @@ const Demo = (() => {
       const ubi = d.ubicaciones.find(u => u.id === ot.ubicacionId);
       const nOT = esNueva ? d.ots.reduce((m, o) => Math.max(m, +o.nOT), 0) + 1 : +ot.nOT;
       const ls = lineas.map((l, i) => {
-        const r = Calc.normalizarLinea(l, i, d.config, d.categorias);
+        const r = Calc.normalizarLinea(l, i, d.config, d.categorias, d.tiposItem);
         r.id = l.id || ('L-' + nOT + '-' + Math.random().toString(36).slice(2, 10));
         r.nOT = nOT; r.fecha = l.fecha || hoy();
         return r;
@@ -116,7 +137,8 @@ const Demo = (() => {
         titulo: ot.titulo.trim(), descripcion: ot.descripcion || '', estado: ot.estado || 'Pendiente',
         nOC: previa ? previa.nOC : '', folioSII: previa ? previa.folioSII : '',
         neto, ivaPct, iva, total: neto + iva, notas: ot.notas || '',
-        creada: previa ? previa.creada : ahora(), actualizada: ahora()
+        creada: previa ? previa.creada : ahora(), actualizada: ahora(),
+        detallar: String(ot.detallar || '').split(',').filter(x => d.tiposItem.some(t => t.id === x)).join(',')
       };
       upsert(d.ots, 'nOT', o);
       d.lineas = d.lineas.filter(l => String(l.nOT) !== String(nOT)).concat(ls);

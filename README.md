@@ -3,7 +3,7 @@
 App web para registrar las **órdenes de trabajo (OT)** de Mantenciones OSC desde el celular.
 La fuente de verdad es una **planilla de Google Sheets** y el backend es **Apps Script**.
 
-**Etapa 1 (esta versión):** OT con bitácora de líneas (mano de obra y materiales), clientes con solicitantes y ubicaciones, y configuración de HH, IVA, recargo, categorías con factor y datos de la empresa.
+**Versión 1.1 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, clientes con solicitantes y ubicaciones, y configuración de HH, IVA, recargo, categorías con factor y datos de la empresa.
 
 **Próximas etapas:** fotos y PDF de cotización (etapa 2). Asignación de OC, folio SII y resumen por cliente (etapa 3).
 
@@ -11,13 +11,19 @@ La fuente de verdad es una **planilla de Google Sheets** y el backend es **Apps 
 
 ## Cálculo
 
-| Tipo | Fórmula |
-|---|---|
-| Mano de obra | horas × HH base × factor de la categoría (mínimo 1 h, de media en media) |
-| Material | cantidad × costo unitario × (1 + % recargo) |
-| OT | Neto = suma de las líneas **incluidas** · IVA = Neto × IVA % · Total = Neto + IVA |
+Cada OT tiene dos bloques:
+
+**🛒 Gestión de compras** (uno por OT)
+- *Ítems de compra*: tipo (Material, Insumo, Arriendo de herramienta, Flete / transporte, Combustible… editable en Config) · cantidad × costo unitario × (1 + % recargo compras). Si un ítem se marca como **descartado**, queda anotado pero no suma.
+- *Tiempo de gestión*: horas × HH base × factor de la categoría "Gestión de compras". Mínimo 1 h, de media en media.
+
+**🛠 Mano de obra**: horas × HH base × factor de la categoría de oficio.
+
+**Totales**: Neto = suma de lo incluido · IVA = Neto × IVA % · Total = Neto + IVA.
 
 Cada línea guarda el HH, el factor y el recargo vigentes cuando se creó. Por eso, si cambias Config, las OT antiguas no se modifican.
+
+**En la cotización** (etapa 2), la gestión de compras aparece como una sola línea, *"Gestión de compras y materiales"*, salvo los tipos que marques con "Detallar" en cada OT.
 
 ---
 
@@ -56,6 +62,13 @@ Tu hermano hace lo mismo en su teléfono, con la misma URL y el mismo token.
 
 ---
 
+## Actualizar a una versión nueva
+1. En Apps Script, reemplaza todo el contenido de `Código.gs` por el nuevo `apps-script/Code.gs` y guarda.
+2. Ejecuta **`setup`** otra vez. No borra datos: solo agrega las hojas o columnas nuevas.
+3. **Implementar → Gestionar implementaciones → ✏️ → Versión: Nueva versión → Implementar.** La URL no cambia.
+4. En GitHub, sube los archivos nuevos encima de los anteriores (*Add file → Upload files → Commit changes*).
+5. En el celular, abre la app y recarga. Si se ve la versión anterior, cierra y vuelve a abrir la pestaña.
+
 ## Seguridad
 - El token protege la API: sin él nadie puede leer ni escribir en la planilla.
 - El token **no** está en el código ni en GitHub. Se guarda solo en cada teléfono.
@@ -76,6 +89,6 @@ apps-script/Code.gs backend (se pega en Apps Script, no lo usa GitHub Pages)
 ```
 
 ## Hojas de la planilla
-`Config` · `Categorias` · `Clientes` · `Solicitantes` · `Ubicaciones` · `OT` · `OT_Lineas`. También quedan creadas, para las próximas etapas, `Fotos` · `Cotizaciones` · `OrdenesCompra` · `Facturas`.
+`Config` · `Categorias` · `TiposItem` · `Clientes` · `Solicitantes` · `Ubicaciones` · `OT` · `OT_Lineas`. También quedan creadas, para las próximas etapas, `Fotos` · `Cotizaciones` · `OrdenesCompra` · `Facturas`.
 
 No cambies el orden de las columnas ni los nombres de las hojas. Sí puedes agregar filtros y formatos, y mirar los datos cuando quieras.

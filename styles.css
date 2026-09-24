@@ -268,3 +268,11 @@ input[readonly] { background: var(--arena); }
 .toast.err { background: var(--rojo); }
 .spinner { width: 16px; height: 16px; border: 2.5px solid rgba(255,255,255,.35); border-top-color: #fff; border-radius: 50%; animation: gira .7s linear infinite; flex-shrink: 0; }
 @keyframes gira { to { transform: rotate(360deg); } }
+
+/* ── Gestión de compras ───────────────── */
+.sub-h { font-size: 12px; font-weight: 800; color: var(--cafe-2); text-transform: uppercase; letter-spacing: .5px; margin: 4px 0 2px; }
+.det-box { margin-top: 18px; background: var(--crema); border: 1.5px dashed var(--linea); border-radius: 12px; padding: 12px 14px; }
+.det-box .check { margin-top: 8px; font-size: 14px; }
+.cat-row .uso { grid-column: 1 / -1; font-size: 11px; font-weight: 700; color: var(--terra); margin: -2px 0 0 2px; text-transform: uppercase; letter-spacing: .3px; }
+.tipo-row { display: grid; grid-template-columns: 1fr 40px; gap: 8px; align-items: center; margin-bottom: 8px; }
+.tipo-row input[type=checkbox] { width: 22px; height: 22px; min-height: 0; justify-self: center; accent-color: var(--terra); }
