@@ -86,7 +86,7 @@ const Demo = (() => {
 
   const actions = {
     ping: () => ({ ok: true }),
-    getAll: () => clone(load()),
+    getAll: () => Object.assign(clone(load()), { version: 'demo' }),
     saveConfig: ({ values }) => {
       const d = load();
       Object.keys(values).forEach(k => {

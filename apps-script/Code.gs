@@ -11,6 +11,8 @@
  *      (Ejecutar como: Yo · Quién tiene acceso: Cualquier usuario).
  */
 
+const VERSION = '2.1.2';
+
 // ════════════════════════════════════════════════════════════ ESQUEMA
 // Cada hoja: lista de [claveJS, encabezadoEnLaHoja]. El orden define las columnas.
 const SCHEMA = {
@@ -237,7 +239,7 @@ function doPost(e) {
 }
 
 const ACTIONS = {
-  ping: function () { return { ok: true, hora: now_() }; },
+  ping: function () { return { ok: true, hora: now_(), version: VERSION }; },
   getAll: getAll_,
   saveConfig: function (r) { return withLock_(function () { return saveConfig_(r.values || {}); }); },
   saveCategoria: function (r) { return withLock_(function () { return saveCategoria_(r.item); }); },
@@ -258,6 +260,7 @@ const ACTIONS = {
 
 function getAll_() {
   return {
+    version: VERSION,
     config: configObj_(),
     categorias: readTable_('Categorias'),
     tiposItem: readTable_('TiposItem'),
@@ -501,6 +504,16 @@ function replaceLineas_(nOT, nuevas) {
 const CARPETA_RAIZ = 'Mantenciones OSC — Archivos';
 
 function carpetaRaiz_() {
+  try { return carpetaRaizSinManejo_(); } catch (e) {
+    const m = String(e && e.message || e);
+    if (/permis|autoriz|authoriz|access/i.test(m)) {
+      throw new Error('Falta autorizar Google Drive. En Apps Script elige la función setup, presiona Ejecutar y acepta los permisos.');
+    }
+    throw e;
+  }
+}
+
+function carpetaRaizSinManejo_() {
   const props = PropertiesService.getScriptProperties();
   const id = props.getProperty('ROOT_FOLDER');
   if (id) {

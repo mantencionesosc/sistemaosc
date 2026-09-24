@@ -16,6 +16,8 @@ let DEMO = LS.get('osc_demo') === '1';
 const S = { config: {}, categorias: [], tiposItem: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [] };
 const FOTOS = {};   // nOT -> [{...foto, data}] (se cargan al abrir la OT)
 let SYNCED = false;
+const APP_VERSION = '2.1.2';
+let API_VERSION = '';
 
 // ════════════════════════════════════════════════════════ CÁLCULO (compartido con demo.js)
 const TIPOS_LINEA = ['Compra', 'Tiempo de gestión', 'Mano de obra'];
@@ -152,6 +154,7 @@ async function sync(silencioso = false) {
       fotos: d.fotos || [], cotizaciones: d.cotizaciones || []
     });
     SYNCED = true;
+    API_VERSION = d.version || '(anterior a 2.1.2)';
     Object.keys(FOTOS).forEach(k => delete FOTOS[k]);  // se vuelven a pedir al abrir cada OT
     guardarCache();
     actualizarEstado();
@@ -462,11 +465,10 @@ async function guardarOT() {
     S.lineas = S.lineas.filter(x => String(x.nOT) !== String(r.ot.nOT)).concat(r.lineas);
     guardarCache();
     const eraNueva = !o.nOT;
-    ED = { ot: r.ot, lineas: r.lineas, dirty: false };
-    toast('✓ ' + otNum(r.ot.nOT) + ' guardada', 'ok');
+    ED = null;
+    toast('✓ ' + otNum(r.ot.nOT) + (eraNueva ? ' creada' : ' guardada'), 'ok');
     actualizarEstado();
-    if (eraNueva) { history.replaceState(null, '', '#/ot/' + r.ot.nOT); }
-    render();
+    location.hash = '#/ots';  // vuelve a la lista de OT
   } catch (e) {
     toast('No se guardó: ' + e.message, 'err');
     btn.disabled = false;
@@ -1058,7 +1060,8 @@ function renderConfig(app) {
       <button class="btn btn-primary btn-full" style="margin-top:14px" id="q-ok">Guardar</button>
     </div>` : ''}
 
-    <p class="hint" style="text-align:center;margin:18px 0">Mantenciones OSC · versión 2.1.1</p>`;
+    <p class="hint" style="text-align:center;margin:18px 0">Mantenciones OSC · app ${APP_VERSION}${DEMO ? ' · modo demo' : API_VERSION ? ' · Apps Script ' + esc(API_VERSION) : ''}
+      ${!DEMO && API_VERSION && API_VERSION !== APP_VERSION ? '<br><span style="color:#B3261E;font-weight:700">⚠ Las versiones no coinciden: actualiza el Apps Script (nueva versión de la implementación) o recarga la app.</span>' : ''}</p>`;
 
   $('#k-ok').onclick = async () => {
     const url = $('#k-url').value.trim(), tok = $('#k-token').value.trim();
