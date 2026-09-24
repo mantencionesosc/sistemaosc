@@ -294,3 +294,11 @@ label.btn-sec { color: var(--cafe); }
 .sub-opts { margin: 0 0 4px 32px; }
 .sub-opts .check { margin-top: 8px; font-size: 14px; font-weight: 500; }
 hr.sep { border: 0; border-top: 1px solid var(--linea); margin: 14px 0 0; }
+
+/* ── Selección de OT para cotizar juntas ── */
+.sel-banner { background: var(--azul-bg); color: var(--azul); border-radius: 12px; padding: 10px 14px; font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.ot-item.sel { outline: 2.5px solid var(--terra); background: #FBEBE2; }
+.selbox { font-size: 17px; color: var(--terra); }
+.sel-bar { position: fixed; left: 0; right: 0; bottom: calc(62px + env(safe-area-inset-bottom)); z-index: 16; background: var(--blanco); border-top: 1px solid var(--linea); padding: 10px 16px; box-shadow: 0 -4px 14px rgba(74,50,34,.08); }
+.sel-bar .inner { max-width: 760px; margin: 0 auto; display: flex; gap: 10px; }
+.sel-bar .btn:last-child { flex: 1; }

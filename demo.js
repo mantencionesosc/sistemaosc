@@ -3,7 +3,7 @@
  * Sirve para probar la app antes de conectar la planilla. Nada de esto llega a Google Sheets.
  */
 const Demo = (() => {
-  const KEY = 'osc_demo_db_v5';
+  const KEY = 'osc_demo_db_v6';
   const IMG = {};  // fotos de la demo: solo en memoria (no caben en el almacenamiento del navegador)
 
   function seed() {
@@ -38,17 +38,24 @@ const Demo = (() => {
         { id: 'CLI-1', razonSocial: 'Universidad de Concepción', nombreCorto: 'UdeC', rut: '', giro: '', direccion: '', comuna: 'Concepción', contacto: '', correo: '', telefono: '', activo: true }
       ],
       solicitantes: [
-        { id: 'SOL-1', clienteId: 'CLI-1', nombre: 'Jefa de ejemplo', cargo: 'Jefa de Administración', unidad: 'Administración', correo: '', telefono: '', activo: true }
+        { id: 'SOL-1', clienteId: 'CLI-1', nombre: 'Jefa de ejemplo', cargo: 'Jefa de Administración', unidad: 'Administración', correo: '', telefono: '', activo: true },
+        { id: 'SOL-2', clienteId: 'CLI-1', nombre: 'Encargado de ejemplo', cargo: 'Encargado de Biblioteca', unidad: 'Biblioteca', correo: '', telefono: '', activo: true }
       ],
       ubicaciones: [
-        { id: 'UBI-1', clienteId: 'CLI-1', edificio: 'Edificio de ejemplo', detalle: 'Baño 2° piso', activo: true }
+        { id: 'UBI-1', clienteId: 'CLI-1', edificio: 'Edificio de ejemplo', detalle: 'Baño 2° piso', activo: true },
+        { id: 'UBI-2', clienteId: 'CLI-1', edificio: 'Biblioteca', detalle: 'Sala de lectura', activo: true }
       ],
       ots: [
         { nOT: 1, fechaInicio: hoy, clienteId: 'CLI-1', cliente: 'UdeC', solicitanteId: 'SOL-1', solicitante: 'Jefa de ejemplo',
           ubicacionId: 'UBI-1', ubicacion: 'Edificio de ejemplo — Baño 2° piso', titulo: 'Cambio de lavamanos',
           descripcion: 'La jefa pide cambiar el lavamanos del baño del 2° piso.', estado: 'En curso',
           nOC: '', folioSII: '', neto: 159120, ivaPct: 19, iva: 30233, total: 189353, notas: '', creada: hoy, actualizada: hoy, detallar: '',
-          subtotal: 122400, recargoPct: 30, recargo: 36720 }
+          subtotal: 122400, recargoPct: 30, recargo: 36720 },
+        { nOT: 2, fechaInicio: hoy, clienteId: 'CLI-1', cliente: 'UdeC', solicitanteId: 'SOL-2', solicitante: 'Encargado de ejemplo',
+          ubicacionId: 'UBI-2', ubicacion: 'Biblioteca — Sala de lectura', titulo: 'Cambio de enchufes',
+          descripcion: 'Reemplazo de 6 enchufes dañados en la sala de lectura.', estado: 'Pendiente',
+          nOC: '', folioSII: '', neto: 87100, ivaPct: 19, iva: 16549, total: 103649, notas: '', creada: hoy, actualizada: hoy, detallar: '',
+          subtotal: 67000, recargoPct: 30, recargo: 20100 }
       ],
       lineas: [
         L('a', 1, 'Compra', { tipoItemId: 'TIP-1', tipoItem: 'Material', descripcion: 'Lavamanos loza blanco (Sodimac)', cantidad: 1, costoUnit: 45000, recargoPct: 0, monto: 45000 }),
@@ -58,7 +65,10 @@ const Demo = (() => {
         L('e', 5, 'Tiempo de gestión', { categoriaId: 'CAT-1', categoria: 'Gestión de compras', descripcion: 'Cotizar en 2 ferreterías', horas: 1, hh: 10000, factor: 1, monto: 10000 }),
         L('f', 6, 'Tiempo de gestión', { categoriaId: 'CAT-1', categoria: 'Gestión de compras', descripcion: 'Compra y retiro', horas: 1.5, hh: 10000, factor: 1, monto: 15000 }),
         L('g', 7, 'Mano de obra', { categoriaId: 'CAT-6', categoria: 'Gasfitería', descripcion: 'Desinstalación de lavamanos', horas: 1, hh: 15000, factor: 1, monto: 15000 }),
-        L('h', 8, 'Mano de obra', { categoriaId: 'CAT-6', categoria: 'Gasfitería', descripcion: 'Instalación de lavamanos y conexiones', horas: 1.5, hh: 15000, factor: 1, monto: 22500 })
+        L('h', 8, 'Mano de obra', { categoriaId: 'CAT-6', categoria: 'Gasfitería', descripcion: 'Instalación de lavamanos y conexiones', horas: 1.5, hh: 15000, factor: 1, monto: 22500 }),
+        L('i', 1, 'Compra', { id: 'L-2-i', nOT: 2, tipoItemId: 'TIP-1', tipoItem: 'Material', descripcion: 'Enchufes dobles', cantidad: 6, costoUnit: 3500, recargoPct: 0, monto: 21000 }),
+        L('j', 2, 'Tiempo de gestión', { id: 'L-2-j', nOT: 2, categoriaId: 'CAT-1', categoria: 'Gestión de compras', descripcion: 'Compra de enchufes', horas: 1, hh: 10000, factor: 1, monto: 10000 }),
+        L('k', 3, 'Mano de obra', { id: 'L-2-k', nOT: 2, categoriaId: 'CAT-3', categoria: 'Electricidad', descripcion: 'Cambio de 6 enchufes', horas: 2, hh: 18000, factor: 1, monto: 36000 })
       ]
     };
   }
@@ -125,11 +135,20 @@ const Demo = (() => {
     deleteFoto: ({ id }) => { const d = load(); d.fotos = d.fotos.filter(f => f.id !== id); delete IMG[id]; return { ok: true, id }; },
     saveCotizacion: r => {
       const d = load();
-      const maxV = d.cotizaciones.filter(c => String(c.nOT) === String(r.nOT)).reduce((m, c) => Math.max(m, c.version), 0);
-      const version = +r.version > maxV ? +r.version : maxV + 1;
-      const o = { id: 'COT-' + r.nOT + '-' + version, nOT: +r.nOT, version, fecha: ahora(), neto: num(r.neto), total: num(r.total), pdfUrl: '', fileId: '' };
+      const mismas = d.cotizaciones.filter(c => c.numero === r.numero);
+      const maxV = mismas.reduce((m, c) => Math.max(m, c.version), 0);
+      if (+r.version !== maxV + 1) throw new Error('Alguien más generó ' + r.numero + ' al mismo tiempo. Sincroniza y vuelve a generar.');
+      mismas.forEach(c => { if (!c.estado || c.estado === 'Vigente') c.estado = 'Reemplazada'; });
+      const ots = (r.ots || []).map(Number);
+      const o = { id: r.numero + '-v' + r.version, nOT: ots.length === 1 ? ots[0] : '', version: +r.version, fecha: ahora(), neto: num(r.neto), total: num(r.total),
+        pdfUrl: '', fileId: '', numero: r.numero, ots: ots.join(','), estado: 'Vigente', clienteId: '', solicitanteId: r.solicitanteId || '', iva: num(r.iva) };
       d.cotizaciones.push(o);
-      return { item: clone(o) };
+      return { item: clone(o), reemplazadas: mismas.map(c => c.id) };
+    },
+    setEstadoCotizacion: ({ id, estado }) => {
+      const d = load(); const c = d.cotizaciones.find(x => x.id === id);
+      if (!c) throw new Error('Cotización no encontrada');
+      c.estado = estado; return { item: clone(c) };
     },
     saveTipoItem: ({ item }) => {
       const d = load();

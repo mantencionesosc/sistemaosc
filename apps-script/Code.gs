@@ -11,7 +11,8 @@
  *      (Ejecutar como: Yo · Quién tiene acceso: Cualquier usuario).
  */
 
-const VERSION = '2.2';
+const VERSION = '2.3';
+const ESTADOS_COT = ['Vigente', 'Reemplazada', 'Descartada', 'Aprobada'];
 
 // ════════════════════════════════════════════════════════════ ESQUEMA
 // Cada hoja: lista de [claveJS, encabezadoEnLaHoja]. El orden define las columnas.
@@ -66,7 +67,10 @@ const SCHEMA = {
   ],
   Cotizaciones: [
     ['id', 'ID'], ['nOT', 'N° OT'], ['version', 'Versión'], ['fecha', 'Fecha'],
-    ['neto', 'Neto'], ['total', 'Total'], ['pdfUrl', 'PDF (Drive)'], ['fileId', 'Archivo Drive ID']
+    ['neto', 'Neto'], ['total', 'Total'], ['pdfUrl', 'PDF (Drive)'], ['fileId', 'Archivo Drive ID'],
+    // desde v2.3: correlativo COT-AAAA-NNN, una o varias OT, estado
+    ['numero', 'N° cotización'], ['ots', 'OT incluidas'], ['estado', 'Estado'],
+    ['clienteId', 'Cliente ID'], ['solicitanteId', 'Atención (solicitante ID)'], ['iva', 'IVA']
   ],
   // Hojas de la etapa 3 (se crean ahora para dejar la estructura lista)
   OrdenesCompra: [
@@ -84,7 +88,8 @@ const TEXT_COLS = {
   Solicitantes: ['telefono'],
   OT: ['nOC', 'folioSII'],
   OrdenesCompra: ['nOC'],
-  Facturas: ['folio', 'nOC']
+  Facturas: ['folio', 'nOC'],
+  Cotizaciones: ['ots', 'numero']  // "3,4" no debe convertirse en el número 3,4
 };
 
 const CONFIG_DEFAULTS = [
@@ -264,7 +269,8 @@ const ACTIONS = {
   uploadFoto: function (r) { return withLock_(function () { return uploadFoto_(r); }); },
   updateFoto: function (r) { return withLock_(function () { return updateFoto_(r.item); }); },
   deleteFoto: function (r) { return withLock_(function () { return deleteFoto_(r.id); }); },
-  saveCotizacion: function (r) { return withLock_(function () { return saveCotizacion_(r); }); }
+  saveCotizacion: function (r) { return withLock_(function () { return saveCotizacion_(r); }); },
+  setEstadoCotizacion: function (r) { return withLock_(function () { return setEstadoCotizacion_(r.id, r.estado); }); }
 };
 
 function getAll_() {
@@ -601,21 +607,60 @@ function deleteFoto_(id) {
   return { ok: true, id: id };
 }
 
+/**
+ * Guarda una cotización de una o varias OT.
+ * r: { ots:[nOT], numero?: 'COT-2026-001' (solo para una versión nueva de una existente), version, pdf, neto, iva, total, solicitanteId }
+ * El número y la versión los propone la app (van impresos en el PDF); aquí se verifica que no estén tomados.
+ */
 function saveCotizacion_(r) {
-  otExiste_(r.nOT);
   if (!r.pdf) throw new Error('Falta el PDF');
-  const previas = readTable_('Cotizaciones').filter(function (c) { return String(c.nOT) === String(r.nOT); });
-  const maxV = previas.reduce(function (m, c) { return Math.max(m, Number(c.version) || 0); }, 0);
-  const version = Number(r.version) > maxV ? Number(r.version) : maxV + 1;
-  const nombre = 'Cotizacion_OT-' + String(r.nOT).padStart(4, '0') + '_v' + version + '.pdf';
+  const ots = (r.ots && r.ots.length ? r.ots : [r.nOT]).map(Number).filter(Boolean);
+  if (!ots.length) throw new Error('La cotización no tiene OT');
+  const otsRows = ots.map(otExiste_);
+  const clienteId = otsRows[0].clienteId;
+  if (otsRows.some(function (o) { return o.clienteId !== clienteId; })) throw new Error('Todas las OT de una cotización deben ser del mismo cliente');
+
+  const todas = readTable_('Cotizaciones');
+  const numero = String(r.numero || '').trim();
+  if (!/^COT-\d{4}-\d{3,}$/.test(numero)) throw new Error('Número de cotización inválido');
+  const mismas = todas.filter(function (c) { return c.numero === numero; });
+  const maxV = mismas.reduce(function (m, c) { return Math.max(m, Number(c.version) || 0); }, 0);
+  const version = Number(r.version) || 1;
+  if (version !== maxV + 1) {
+    throw new Error('Alguien más generó ' + numero + (maxV ? ' v' + maxV : '') + ' al mismo tiempo. Sincroniza (⟳) y vuelve a generar.');
+  }
+
+  const nombre = 'Cotizacion_' + numero + '_v' + version + '.pdf';
   const blob = Utilities.newBlob(Utilities.base64Decode(r.pdf), 'application/pdf', nombre);
-  const file = carpetaOT_(r.nOT).createFile(blob);
+  const file = carpetaCotizaciones_().createFile(blob);
+
+  // Las versiones anteriores vigentes pasan a "Reemplazada"
+  mismas.forEach(function (c) {
+    if (!c.estado || c.estado === 'Vigente') upsert_('Cotizaciones', 'id', Object.assign({}, c, { estado: 'Reemplazada' }));
+  });
   const obj = {
-    id: 'COT-' + r.nOT + '-' + version, nOT: Number(r.nOT), version: version, fecha: now_(),
-    neto: num_(r.neto), total: num_(r.total), pdfUrl: file.getUrl(), fileId: file.getId()
+    id: numero + '-v' + version, nOT: ots.length === 1 ? ots[0] : '', version: version, fecha: now_(),
+    neto: num_(r.neto), total: num_(r.total), pdfUrl: file.getUrl(), fileId: file.getId(),
+    numero: numero, ots: ots.join(','), estado: 'Vigente', clienteId: clienteId,
+    solicitanteId: String(r.solicitanteId || ''), iva: num_(r.iva)
   };
   upsert_('Cotizaciones', 'id', obj);
+  return { item: obj, reemplazadas: mismas.map(function (c) { return c.id; }) };
+}
+
+function setEstadoCotizacion_(id, estado) {
+  if (ESTADOS_COT.indexOf(estado) === -1) throw new Error('Estado inválido: ' + estado);
+  const c = readTable_('Cotizaciones').find(function (x) { return x.id === id; });
+  if (!c) throw new Error('Cotización no encontrada');
+  const obj = Object.assign({}, c, { estado: estado });
+  upsert_('Cotizaciones', 'id', obj);
   return { item: obj };
+}
+
+function carpetaCotizaciones_() {
+  const raiz = carpetaRaiz_();
+  const it = raiz.getFoldersByName('Cotizaciones');
+  return it.hasNext() ? it.next() : raiz.createFolder('Cotizaciones');
 }
 
 function slug_(s) { return normTxt_(s).replace(/[^a-z0-9]+/g, '-'); }

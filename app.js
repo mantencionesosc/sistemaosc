@@ -16,7 +16,7 @@ let DEMO = LS.get('osc_demo') === '1';
 const S = { config: {}, categorias: [], tiposItem: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [] };
 const FOTOS = {};   // nOT -> [{...foto, data}] (se cargan al abrir la OT)
 let SYNCED = false;
-const APP_VERSION = '2.2';
+const APP_VERSION = '2.3';
 let API_VERSION = '';
 
 // ════════════════════════════════════════════════════════ CÁLCULO (compartido con demo.js)
@@ -210,6 +210,7 @@ function render() {
   document.body.classList.toggle('editor-open', vista === 'ot');
   const app = $('#app');
   if (vista !== 'ot') ED = null;
+  if (vista !== 'ots' && vista !== '') SEL = null;
   if (vista === 'ot') return renderEditor(param);
   if (vista === 'clientes') return renderClientes(app);
   if (vista === 'cliente') return renderCliente(app, param);
@@ -219,6 +220,7 @@ function render() {
 
 // ════════════════════════════════════════════════════════ LISTA DE OT
 let FILTRO = LS.get('osc_filtro', 'activas');
+let SEL = null;  // Set de N° OT seleccionadas para cotizar juntas (null = modo normal)
 let BUSQ = '';
 
 function renderOTs(app) {
@@ -235,19 +237,44 @@ function renderOTs(app) {
     ${sinHH ? `<div class="warn-banner">⚠ Hay categorías sin <b>valor hora</b>. Sus líneas salen en $0. <a href="#/config">Ir a Config →</a></div>` : ''}
     <input class="search" type="search" id="busq" placeholder="Buscar OT, título, edificio, solicitante…" value="${esc(BUSQ)}">
     <div class="chips">${filtros.map(([k, t]) => `<button class="chip ${FILTRO === k ? 'on' : ''}" data-f="${k}">${t}</button>`).join('')}</div>
-    <div id="ot-list" style="padding-bottom:64px">${lista.length ? lista.map(itemOT).join('') : `<div class="empty"><span class="big">📋</span>${S.ots.length ? 'No hay OT con este filtro.' : 'Aún no hay órdenes de trabajo.<br>Crea la primera con el botón de abajo.'}</div>`}</div>
-    <button class="fab" id="btn-nueva">＋ Nueva OT</button>`;
+    ${SEL ? `<div class="sel-banner">Toca las OT que quieres cotizar juntas (mismo cliente).</div>`
+          : (S.ots.length > 1 ? `<button class="btn btn-sec btn-sm" id="btn-sel" style="margin-bottom:10px">☑ Seleccionar para cotizar juntas</button>` : '')}
+    <div id="ot-list" style="padding-bottom:${SEL ? 90 : 64}px">${lista.length ? lista.map(itemOT).join('') : `<div class="empty"><span class="big">📋</span>${S.ots.length ? 'No hay OT con este filtro.' : 'Aún no hay órdenes de trabajo.<br>Crea la primera con el botón de abajo.'}</div>`}</div>
+    ${SEL ? `<div class="sel-bar"><div class="inner">
+        <button class="btn btn-sec" id="sel-cancel">Cancelar</button>
+        <button class="btn btn-primary" id="sel-ok" ${SEL.size ? '' : 'disabled'}>📄 Cotizar juntas (${SEL.size})</button>
+      </div></div>` : `<button class="fab" id="btn-nueva">＋ Nueva OT</button>`}`;
   $('#busq').addEventListener('input', e => { BUSQ = e.target.value; const pos = e.target.selectionStart; renderOTs(app); const b = $('#busq'); b.focus(); b.setSelectionRange(pos, pos); });
   app.querySelectorAll('.chip').forEach(c => c.onclick = () => { FILTRO = c.dataset.f; LS.set('osc_filtro', FILTRO); renderOTs(app); });
-  $('#btn-nueva').onclick = () => { location.hash = '#/ot/nueva'; };
+  if (!SEL) {
+    $('#btn-nueva').onclick = () => { location.hash = '#/ot/nueva'; };
+    const bs = $('#btn-sel'); if (bs) bs.onclick = () => { SEL = new Set(); renderOTs(app); };
+    return;
+  }
+  app.querySelectorAll('.ot-item').forEach(el => el.onclick = e => {
+    e.preventDefault();
+    const n = Number(el.dataset.n);
+    const o = S.ots.find(x => Number(x.nOT) === n);
+    if (o.estado === 'Anulada') { toast('Una OT anulada no se puede cotizar', 'err'); return; }
+    if (SEL.has(n)) SEL.delete(n);
+    else {
+      const otro = [...SEL].map(k => S.ots.find(x => Number(x.nOT) === k)).find(x => x && x.clienteId !== o.clienteId);
+      if (otro) { toast('Solo OT del mismo cliente (' + (otro.cliente || '') + ')', 'err'); return; }
+      SEL.add(n);
+    }
+    renderOTs(app);
+  });
+  $('#sel-cancel').onclick = () => { SEL = null; renderOTs(app); };
+  $('#sel-ok').onclick = () => abrirGenerar([...SEL].sort((a, b) => a - b));
 }
 
 function itemOT(o) {
   const nLin = S.lineas.filter(l => String(l.nOT) === String(o.nOT)).length;
-  return `<a class="ot-item e-${slug(o.estado)}" href="#/ot/${o.nOT}">
-    <div class="ot-top"><span class="ot-num">${otNum(o.nOT)}</span><span>${fechaCorta(o.fechaInicio)}</span></div>
+  const sel = SEL && SEL.has(Number(o.nOT));
+  return `<a class="ot-item e-${slug(o.estado)} ${sel ? 'sel' : ''}" href="#/ot/${o.nOT}" data-n="${o.nOT}">
+    <div class="ot-top"><span class="ot-num">${SEL ? `<span class="selbox">${sel ? '☑' : '☐'}</span> ` : ''}${otNum(o.nOT)}</span><span>${fechaCorta(o.fechaInicio)}</span></div>
     <div class="ot-tit">${esc(o.titulo)}</div>
-    <div class="ot-meta">${esc([o.ubicacion, o.solicitante].filter(Boolean).join(' · ') || o.cliente)}${(() => { const nf = S.fotos.filter(f => String(f.nOT) === String(o.nOT)).length, nc = S.cotizaciones.filter(c => String(c.nOT) === String(o.nOT)).length; return (nf ? ' · 📷 ' + nf : '') + (nc ? ' · 📄 v' + nc : ''); })()}</div>
+    <div class="ot-meta">${esc([o.ubicacion, o.solicitante].filter(Boolean).join(' · ') || o.cliente)}${(() => { const nf = S.fotos.filter(f => String(f.nOT) === String(o.nOT)).length, nc = cotsDeOT(o.nOT).filter(c => !['Reemplazada', 'Descartada'].includes(estadoCot(c))); return (nf ? ' · 📷 ' + nf : '') + (nc.length ? ' · 📄 ' + nc.map(c => c.numero || 'v' + c.version).join(', ') : ''); })()}</div>
     <div class="ot-bottom">
       <div class="badges">
         <span class="badge b-${slug(o.estado)}">${esc(o.estado)}</span>
@@ -729,19 +756,90 @@ function modalFoto(id, ro) {
   };
 }
 
-// ════════════════════════════════════════════════════════ COTIZACIÓN PDF
+// ════════════════════════════════════════════════════════ COTIZACIONES (una o varias OT)
+// Número: COT-AAAA-NNN con versiones (v1, v2…). Las anteriores a v2.3 se muestran como "OT-0001 v1".
+const otsDeCot = c => String(c.ots || c.nOT || '').split(',').map(x => x.trim()).filter(Boolean).map(Number);
+const etiquetaCot = c => (c.numero || otNum(c.nOT)) + ' v' + c.version;
+const estadoCot = c => c.estado || 'Vigente';
+const cotsDeOT = n => S.cotizaciones.filter(c => otsDeCot(c).includes(Number(n)));
+const ordenCots = (a, b) => String(b.numero || b.id).localeCompare(String(a.numero || a.id)) || b.version - a.version;
+
+function siguienteNumeroCot() {
+  const anio = new Date().getFullYear();
+  const re = new RegExp('^COT-' + anio + '-(\\d+)$');
+  const max = S.cotizaciones.reduce((m, c) => { const x = String(c.numero || '').match(re); return x ? Math.max(m, +x[1]) : m; }, 0);
+  return `COT-${anio}-${String(max + 1).padStart(3, '0')}`;
+}
+
+function badgeCot(c) {
+  const e = estadoCot(c);
+  const cls = { Vigente: 'b-en-curso', Aprobada: 'b-terminada', Reemplazada: 'b-anulada', Descartada: 'b-anulada' }[e] || '';
+  return `<span class="badge ${cls}">${esc(e)}</span>`;
+}
+
 function renderCotCard() {
   const box = $('#cot-card'); if (!box || !ED) return;
   const n = ED.ot.nOT;
-  const cots = n ? S.cotizaciones.filter(c => String(c.nOT) === String(n)).sort((a, b) => a.version - b.version) : [];
-  const sig = cots.reduce((m, c) => Math.max(m, Calc.num(c.version)), 0) + 1;
+  const cots = n ? cotsDeOT(n).sort(ordenCots) : [];
   box.innerHTML = `<h2>📄 Cotización</h2>
-    ${cots.length ? cots.map(c => `<div class="list-item" style="cursor:default">
-        <div class="li-body"><div class="li-tit">${otNum(n)} v${esc(c.version)}</div><div class="li-sub">${fechaCorta(c.fecha)} ${esc(String(c.fecha).slice(11, 16))} · ${clp(c.total)}</div></div>
-        ${c.pdfUrl ? `<a class="btn btn-sec btn-sm" href="${esc(c.pdfUrl)}" target="_blank" rel="noopener">Ver PDF</a>` : ''}
-      </div>`).join('') : `<p class="hint">${n ? 'Aún no se ha generado ninguna cotización.' : 'Guarda la OT para generar la cotización.'}</p>`}
-    ${n ? `<button class="btn btn-primary btn-full" style="margin-top:12px" id="cot-gen">📄 Generar cotización v${sig}</button>` : ''}`;
-  const b = $('#cot-gen'); if (b) b.onclick = () => modalCotizacion(sig);
+    ${cots.length ? cots.map(c => {
+      const otras = otsDeCot(c).filter(x => x !== Number(n));
+      const apagada = ['Reemplazada', 'Descartada'].includes(estadoCot(c));
+      return `<div class="list-item ${apagada ? 'inactivo' : ''}" data-cot="${esc(c.id)}">
+        <div class="li-body"><div class="li-tit">${esc(etiquetaCot(c))} ${badgeCot(c)}</div>
+        <div class="li-sub">${fechaCorta(c.fecha)} · ${clp(c.total)}${otras.length ? ' · junto a ' + otras.map(otNum).join(', ') : ''}</div></div>
+        <span class="chev">›</span></div>`;
+    }).join('') : `<p class="hint">${n ? 'Aún no se ha generado ninguna cotización para esta OT.' : 'Guarda la OT para generar la cotización.'}</p>`}
+    ${n ? `<button class="btn btn-primary btn-full" style="margin-top:12px" id="cot-gen">📄 Nueva cotización</button>
+      <p class="hint" style="margin-top:8px">Para cotizar varias OT juntas: en la lista de OT usa "☑ Seleccionar".</p>` : ''}`;
+  const b = $('#cot-gen'); if (b) b.onclick = () => abrirGenerar([Number(n)]);
+  box.querySelectorAll('[data-cot]').forEach(el => el.onclick = () => modalCot(el.dataset.cot));
+}
+
+function modalCot(id) {
+  const c = S.cotizaciones.find(x => x.id === id); if (!c) return;
+  const e = estadoCot(c);
+  const ots = otsDeCot(c);
+  const m = abrirModal(`
+    <h3>${esc(etiquetaCot(c))}<button class="x" data-cerrar>✕</button></h3>
+    <p style="margin:0 0 6px">${badgeCot(c)}</p>
+    <p class="hint">${fechaCorta(c.fecha)} ${esc(String(c.fecha).slice(11, 16))} · Neto ${clp(c.neto)} · Total ${clp(c.total)}</p>
+    <p class="hint">OT incluidas: ${ots.map(x => { const o = S.ots.find(z => Number(z.nOT) === x); return otNum(x) + (o ? ' · ' + esc(o.titulo) : ''); }).join('<br>')}</p>
+    <div class="btn-row" style="flex-direction:column">
+      ${c.pdfUrl ? `<a class="btn btn-sec" href="${esc(c.pdfUrl)}" target="_blank" rel="noopener">👁 Ver PDF en Drive</a>` : ''}
+      ${c.numero ? `<button class="btn btn-primary" id="mc-ver">📄 Generar nueva versión</button>` : ''}
+      ${e !== 'Aprobada' && e !== 'Reemplazada' ? '<button class="btn btn-sec" id="mc-apr">✅ Marcar como aprobada</button>' : ''}
+      ${e !== 'Descartada' && e !== 'Reemplazada' ? '<button class="btn btn-danger" id="mc-desc">✕ Descartar</button>' : ''}
+      ${e === 'Aprobada' || e === 'Descartada' ? '<button class="btn btn-sec" id="mc-vig">↺ Volver a vigente</button>' : ''}
+    </div>`);
+  const cambiar = async estado => {
+    toast('Guardando…');
+    try {
+      const r = await api('setEstadoCotizacion', { id, estado });
+      S.cotizaciones = S.cotizaciones.map(x => x.id === id ? r.item : x); guardarCache();
+      toast('✓ ' + etiquetaCot(r.item) + ': ' + estado, 'ok'); cerrarModal(); renderCotCard();
+    } catch (err) { toast('No se guardó: ' + err.message, 'err'); }
+  };
+  const on = (sel, fn) => { const el = m.querySelector(sel); if (el) el.onclick = fn; };
+  on('#mc-apr', () => cambiar('Aprobada'));
+  on('#mc-desc', () => { if (confirm('¿Descartar ' + etiquetaCot(c) + '? Quedará en gris en el historial.')) cambiar('Descartada'); });
+  on('#mc-vig', () => cambiar('Vigente'));
+  on('#mc-ver', () => { cerrarModal(); abrirGenerar(ots, c.numero); });
+}
+
+/** Valida la selección de OT y abre el diálogo de generación. */
+function abrirGenerar(nOTs, numeroBase = '') {
+  if (ED && ED.dirty && nOTs.includes(Number(ED.ot.nOT))) { toast('Guarda los cambios de la OT antes de generar la cotización', 'err'); return; }
+  const ots = nOTs.map(n => S.ots.find(o => Number(o.nOT) === Number(n))).filter(Boolean);
+  if (!ots.length) { toast('No se encontraron las OT', 'err'); return; }
+  if (new Set(ots.map(o => o.clienteId)).size > 1) { toast('Las OT deben ser del mismo cliente para cotizarlas juntas', 'err'); return; }
+  if (ots.length > 1) {
+    const sols = [...new Set(ots.map(o => o.solicitante || '(sin solicitante)'))];
+    if (sols.length > 1 && !confirm('Estas OT fueron pedidas por personas distintas:\n\n' + ots.map(o => `${otNum(o.nOT)}: ${o.solicitante || '(sin solicitante)'}`).join('\n') + '\n\n¿Seguro que van en la misma cotización?')) return;
+    const edifs = [...new Set(ots.map(o => (S.ubicaciones.find(u => u.id === o.ubicacionId) || {}).edificio || '(sin ubicación)'))];
+    if (edifs.length > 1 && !confirm('Estas OT son de edificios distintos:\n\n' + ots.map(o => `${otNum(o.nOT)}: ${(S.ubicaciones.find(u => u.id === o.ubicacionId) || {}).edificio || '(sin ubicación)'}`).join('\n') + '\n\n¿Seguro que van en la misma cotización?')) return;
+  }
+  modalCotizacion(ots, numeroBase);
 }
 
 function cargarScript(src) {
@@ -758,28 +856,38 @@ async function dataUrlDe(url) {
   return new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
 }
 
-function modalCotizacion(version) {
-  if (ED.dirty) { toast('Guarda los cambios de la OT antes de generar la cotización', 'err'); return; }
+function modalCotizacion(ots, numeroBase) {
   const cfg = S.config;
+  const multiple = ots.length > 1;
+  const numero = numeroBase || siguienteNumeroCot();
+  const version = S.cotizaciones.filter(c => c.numero === numero).reduce((m, c) => Math.max(m, Calc.num(c.version)), 0) + 1;
   const hayCond = !!String(cfg.COT_CONDICIONES || '').trim();
-  const nFotos = S.fotos.filter(f => String(f.nOT) === String(ED.ot.nOT) && f.enPresupuesto !== false).length;
-  const incl = ED.lineas.filter(l => l.incluida !== false);
+  const nums = ots.map(o => Number(o.nOT));
+  const nFotos = S.fotos.filter(f => nums.includes(Number(f.nOT)) && f.enPresupuesto !== false).length;
+  const incl = S.lineas.filter(l => nums.includes(Number(l.nOT)) && l.incluida !== false);
   const hayCompras = incl.some(l => ['Compra', 'Tiempo de gestión'].includes(Calc.tipoDe(l)));
   const hayMO = incl.some(l => Calc.tipoDe(l) === 'Mano de obra');
   const tiposPres = [...new Map(incl.filter(l => Calc.tipoDe(l) === 'Compra' && l.tipoItemId)
     .map(l => [l.tipoItemId, l.tipoItem || (S.tiposItem.find(t => t.id === l.tipoItemId) || {}).nombre || 'Ítem'])).entries()];
+  const sols = S.solicitantes.filter(s => s.clienteId === ots[0].clienteId && (s.activo !== false || ots.some(o => o.solicitanteId === s.id)));
+  const previa = numeroBase ? S.cotizaciones.filter(c => c.numero === numeroBase).sort((a, b) => b.version - a.version)[0] : null;
+  const atDefecto = (previa && previa.solicitanteId) || (ots.find(o => o.solicitanteId) || {}).solicitanteId || '';
   const m = abrirModal(`
-    <h3>Cotización ${otNum(ED.ot.nOT)} v${version}<button class="x" data-cerrar>✕</button></h3>
-    <p class="hint" style="margin:0 0 6px">Sin marcar nada, la cotización muestra solo el trabajo pedido y su valor.</p>
+    <h3>${esc(numero)} v${version}<button class="x" data-cerrar>✕</button></h3>
+    <p class="hint" style="margin:0 0 4px">${ots.map(o => `${otNum(o.nOT)} · ${esc(o.titulo)}`).join('<br>')}</p>
+    <label for="c-at">Atención</label>
+    <select id="c-at"><option value="">— Sin nombre —</option>${sols.map(s => `<option value="${esc(s.id)}" ${s.id === atDefecto ? 'selected' : ''}>${esc(s.nombre)}${s.cargo ? ' · ' + esc(s.cargo) : ''}</option>`).join('')}</select>
+    <p class="hint" style="margin:10px 0 0">Sin marcar nada, la cotización muestra ${multiple ? 'cada OT con su título, detalle y valor' : 'solo el trabajo pedido y su valor'}.</p>
     <label class="check"><input type="checkbox" id="c-dc" ${cfg.COT_DETALLE_COMPRAS === 'SI' ? 'checked' : ''} ${hayCompras ? '' : 'disabled'}> Mostrar gestión de compras</label>
     <div class="sub-opts" id="c-dc-sub">${tiposPres.map(([id, nom]) => `<label class="check"><input type="checkbox" data-tipo="${esc(id)}" checked> Listar ${esc(nom)}</label>`).join('') || '<p class="hint">Solo hay tiempo de gestión.</p>'}</div>
     <label class="check"><input type="checkbox" id="c-dm" ${cfg.COT_DETALLE_MO === 'SI' ? 'checked' : ''} ${hayMO ? '' : 'disabled'}> Mostrar mano de obra</label>
     <div class="sub-opts" id="c-dm-sub"><label class="check"><input type="checkbox" id="c-agr" ${cfg.COT_MO_AGRUPADA === 'SI' ? 'checked' : ''}> Agrupada por categoría (en vez de cada proceso)</label></div>
     <hr class="sep">
+    <label class="check"><input type="checkbox" id="c-fot" ${!multiple && nFotos ? 'checked' : ''} ${nFotos ? '' : 'disabled'}> Incluir fotos ${nFotos ? `(${nFotos})` : '(no hay fotos marcadas)'}</label>
     <label class="check"><input type="checkbox" id="c-cond" ${hayCond && cfg.COT_INCLUIR_CONDICIONES === 'SI' ? 'checked' : ''} ${hayCond ? '' : 'disabled'}> Incluir condiciones</label>
     ${hayCond ? '' : '<p class="hint">Para usar condiciones, escríbelas en Config → Cotizaciones.</p>'}
-    <p class="hint" style="margin-top:12px">📷 ${nFotos ? nFotos + ' foto' + (nFotos === 1 ? '' : 's') + ' en el anexo fotográfico.' : 'Sin fotos marcadas para la cotización.'}</p>
-    ${S.config.EMPRESA_RUT ? '' : '<p class="hint" style="color:#8A5310">⚠ Faltan datos de la empresa (RUT, etc.) en Config.</p>'}
+    ${cfg.EMPRESA_RUT ? '' : '<p class="hint" style="color:#8A5310">⚠ Faltan datos de la empresa (RUT, etc.) en Config.</p>'}
+    ${version > 1 ? `<p class="hint">La versión anterior quedará como <b>Reemplazada</b>.</p>` : ''}
     <div class="btn-row"><button class="btn btn-primary" id="c-ok">Generar</button></div>`);
   const sync = () => {
     $('#c-dc-sub').classList.toggle('hidden', !$('#c-dc').checked);
@@ -789,20 +897,23 @@ function modalCotizacion(version) {
   $('#c-ok').onclick = async () => {
     const opciones = {
       detalleCompras: $('#c-dc').checked && hayCompras, detalleMO: $('#c-dm').checked && hayMO,
-      agruparMO: $('#c-agr').checked, incluirCondiciones: $('#c-cond').checked,
+      agruparMO: $('#c-agr').checked, incluirCondiciones: $('#c-cond').checked, incluirFotos: $('#c-fot').checked,
       tiposOcultos: [...m.querySelectorAll('[data-tipo]')].filter(cb => !cb.checked).map(cb => cb.dataset.tipo)
     };
+    const atencionId = $('#c-at').value;
     m.querySelectorAll('button').forEach(b => b.disabled = true);
     try {
-      const { doc, totales } = await armarPDF(version, opciones);
+      const { doc, totales } = await armarPDF(ots, numero, version, opciones, atencionId);
       toast('Guardando en Drive…');
       const pdf = doc.output('datauristring').split(',')[1];
-      const r = await api('saveCotizacion', { nOT: ED.ot.nOT, version, pdf, neto: totales.neto, total: totales.total });
-      S.cotizaciones.push(r.item); guardarCache();
-      const nombre = `Cotizacion_${otNum(ED.ot.nOT)}_v${r.item.version}.pdf`;
-      const file = new File([doc.output('blob')], nombre, { type: 'application/pdf' });
+      const r = await api('saveCotizacion', { ots: nums, numero, version, pdf, neto: totales.neto, iva: totales.iva, total: totales.total, solicitanteId: atencionId });
+      const reemp = new Set(r.reemplazadas || []);
+      S.cotizaciones = S.cotizaciones.map(c => reemp.has(c.id) ? Object.assign({}, c, { estado: 'Reemplazada' }) : c).concat([r.item]);
+      guardarCache();
+      const file = new File([doc.output('blob')], `Cotizacion_${numero}_v${r.item.version}.pdf`, { type: 'application/pdf' });
       toast('✓ Cotización lista', 'ok');
-      renderCotCard();
+      SEL = null;
+      if (ED) renderCotCard(); else render();
       modalCompartir(file, r.item);
     } catch (e) {
       toast('No se generó: ' + e.message, 'err');
@@ -811,20 +922,32 @@ function modalCotizacion(version) {
   };
 }
 
-async function armarPDF(version, opciones) {
+async function armarPDF(ots, numero, version, opciones, atencionId) {
   toast('Preparando PDF…');
   await cargarScript('lib/jspdf.umd.min.js');
-  const o = ED.ot;
-  const [logo, fotos] = await Promise.all([dataUrlDe('img/logo-pdf.png').catch(() => null), cargarFotos(o.nOT).catch(() => [])]);
-  const ivaPct = pctOT(o, 'ivaPct', 'IVA_PCT');
-  const totales = Object.assign(totalesED(), { ivaPct });
+  const logo = await dataUrlDe('img/logo-pdf.png').catch(() => null);
+  let fotos = [];
+  if (opciones.incluirFotos) {
+    for (const o of ots) {
+      const fs = await cargarFotos(o.nOT).catch(() => []);
+      fotos = fotos.concat(fs.filter(f => f.enPresupuesto !== false).map(f => Object.assign({}, f, { nOT: o.nOT })));
+    }
+  }
+  const items = ots.map(o => ({
+    ot: o,
+    lineas: S.lineas.filter(l => Number(l.nOT) === Number(o.nOT)).sort((a, b) => a.orden - b.orden).map(l => Object.assign({}, l, { tipo: Calc.tipoDe(l) })),
+    ubicacion: S.ubicaciones.find(u => u.id === o.ubicacionId),
+    neto: Calc.num(o.neto)
+  }));
+  const ivaPct = Calc.vacio(ots[0].ivaPct) ? Calc.num(S.config.IVA_PCT) : Calc.num(ots[0].ivaPct);
+  const neto = items.reduce((s, it) => s + it.neto, 0);
+  const iva = Math.round(neto * ivaPct / 100);
+  const totales = { neto, iva, total: neto + iva, ivaPct };
   const doc = Cotizacion.generar({
-    ot: o, lineas: ED.lineas.map(l => Object.assign({}, l, { tipo: Calc.tipoDe(l) })), cfg: S.config,
-    cliente: S.clientes.find(c => c.id === o.clienteId) || {},
-    solicitante: S.solicitantes.find(x => x.id === o.solicitanteId),
-    ubicacion: S.ubicaciones.find(x => x.id === o.ubicacionId),
-    version, fechaISO: hoyISO(), opciones, logo, totales, montoLinea: Calc.montoLinea,
-    fotos: fotos.filter(f => f.enPresupuesto !== false)
+    numero, version, fechaISO: hoyISO(), cfg: S.config, logo, montoLinea: Calc.montoLinea,
+    cliente: S.clientes.find(c => c.id === ots[0].clienteId) || {},
+    solicitante: S.solicitantes.find(x => x.id === atencionId),
+    items, opciones, fotos, totales
   });
   return { doc, totales };
 }
@@ -834,7 +957,7 @@ function modalCompartir(file, item) {
   const puedeCompartir = !!(navigator.canShare && navigator.canShare({ files: [file] }));
   abrirModal(`
     <h3>✓ ${esc(file.name.replace('.pdf', '').replace(/_/g, ' '))}<button class="x" data-cerrar>✕</button></h3>
-    <p class="hint">Quedó guardada${item.pdfUrl ? ' en Drive' : ''} y registrada en la OT.</p>
+    <p class="hint">Quedó guardada${item.pdfUrl ? ' en Drive' : ''} y registrada en ${otsDeCot(item).length > 1 ? 'las OT incluidas' : 'la OT'}.</p>
     <div class="btn-row" style="flex-direction:column">
       ${puedeCompartir ? '<button class="btn btn-primary" id="cp-share">📤 Compartir (WhatsApp, correo…)</button>' : ''}
       <a class="btn ${puedeCompartir ? 'btn-sec' : 'btn-primary'}" href="${url}" download="${esc(file.name)}">⬇ Descargar PDF</a>

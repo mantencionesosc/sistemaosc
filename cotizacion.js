@@ -71,21 +71,28 @@ const Cotizacion = (() => {
     return rows;
   }
 
+  const ubicTxt = u => u ? u.edificio + (u.detalle ? ' - ' + u.detalle : '') : '';
+
   /**
-   * datos: { ot, lineas, cfg, cliente, solicitante, ubicacion, version, fechaISO,
-   *          opciones: { detalleCompras, detalleMO, agruparMO, tiposOcultos[], incluirCondiciones }, fotos: [{etapa, descripcion, data}], logo (dataURL),
-   *          montoLinea, totales: {neto, iva, total, ivaPct} }
+   * datos: { numero: 'COT-2026-001', version, fechaISO, cfg, cliente, solicitante (atención), logo, montoLinea,
+   *          items: [{ ot, lineas, ubicacion, neto }],   // una o varias OT
+   *          opciones: { detalleCompras, detalleMO, agruparMO, tiposOcultos[], incluirCondiciones },
+   *          fotos: [{ nOT, etapa, descripcion, data }], totales: { neto, iva, total, ivaPct } }
    */
   function generar(datos) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    const { ot, cfg = {}, cliente = {}, solicitante, ubicacion, version, opciones = {}, totales } = datos;
-    const numero = `${otNum(ot.nOT)} v${version}`;
+    const { cfg = {}, cliente = {}, solicitante, opciones = {}, totales, items = [] } = datos;
+    const numero = `${datos.numero} v${datos.version}`;
+    const multiple = items.length > 1;
+    const ubics = [...new Set(items.map(i => ubicTxt(i.ubicacion)).filter(Boolean))];
+    const ubicComun = ubics.length === 1 && items.every(i => ubicTxt(i.ubicacion) === ubics[0]) ? ubics[0] : '';
+    const resumida = !opciones.detalleCompras && !opciones.detalleMO;
     let y = M;
 
     const color = (c, tipo = 'text') => tipo === 'text' ? doc.setTextColor(...c) : tipo === 'fill' ? doc.setFillColor(...c) : doc.setDrawColor(...c);
     const font = (estilo = 'normal', size = 10, c = C.cafe) => { doc.setFont('helvetica', estilo); doc.setFontSize(size); color(c); };
-    const wrap = (txt, ancho) => doc.splitTextToSize(t(txt), ancho);
+    const wrap = (txt, ancho) => String(txt ?? '').split(/\r?\n/).flatMap(p => doc.splitTextToSize(t(p), ancho));
     const saltoSi = (alto, alSaltar) => {
       if (y + alto > H - PIE) { doc.addPage(); y = M + 4; if (alSaltar) alSaltar(); return true; }
       return false;
@@ -119,7 +126,7 @@ const Cotizacion = (() => {
       [cliente.direccion, cliente.comuna].filter(Boolean).join(', '),
       solicitante && ('Atención: ' + solicitante.nombre + (solicitante.cargo ? ' - ' + solicitante.cargo : '')),
       solicitante && solicitante.unidad,
-      ubicacion && ('Ubicación: ' + ubicacion.edificio + (ubicacion.detalle ? ' - ' + ubicacion.detalle : ''))
+      ubicComun && ('Ubicación: ' + ubicComun)
     ].filter(Boolean);
     const caja = (x, titulo, lineas) => {
       let yy = y + 6;
@@ -129,9 +136,7 @@ const Cotizacion = (() => {
         font(i === 0 ? 'bold' : 'normal', i === 0 ? 10 : 9, i === 0 ? C.cafe : C.cafe2);
         wrap(ln, colW - 8).forEach(w => { doc.text(w, x + 4, yy); yy += 4.4; });
       });
-      return yy - y + 2;
     };
-    // medir alto y dibujar fondo
     const medir = ls => 9 + ls.reduce((s, ln) => { doc.setFontSize(10); return s + wrap(ln, colW - 8).length * 4.4; }, 0);
     const altoCaja = Math.max(medir(emisor), medir(receptor));
     color(C.arena, 'fill');
@@ -141,10 +146,9 @@ const Cotizacion = (() => {
     caja(M + colW + 6, 'PARA', receptor);
     y += altoCaja + 8;
 
-    const resumida = !opciones.detalleCompras && !opciones.detalleMO;
-
-    // ── Trabajo solicitado (en la versión resumida va dentro de la tabla)
-    if (!resumida) {
+    // ── Trabajo solicitado: solo en la cotización de una OT con detalle
+    if (!multiple && !resumida && items[0]) {
+      const ot = items[0].ot;
       font('bold', 8, C.terra); doc.text('TRABAJO SOLICITADO', M, y); y += 5.5;
       font('bold', 12); wrap(ot.titulo, ANCHO).forEach(w => { doc.text(w, M, y); y += 5.5; });
       if (ot.descripcion) {
@@ -152,6 +156,27 @@ const Cotizacion = (() => {
         wrap(ot.descripcion, ANCHO).forEach(w => { saltoSi(5); doc.text(w, M, y); y += 4.5; });
       }
       y += 5;
+    }
+
+    // ── Filas de la tabla
+    const opcFilas = it => ({
+      ot: it.ot, detalleCompras: !!opciones.detalleCompras, detalleMO: !!opciones.detalleMO, agruparMO: !!opciones.agruparMO,
+      tiposOcultos: opciones.tiposOcultos || [], montoLinea: datos.montoLinea
+    });
+    let rows = [];
+    if (!multiple) {
+      if (items[0]) rows = repartirRecargo(filas(items[0].lineas, opcFilas(items[0])), items[0].neto);
+    } else {
+      items.forEach(it => {
+        const ot = it.ot;
+        const sub = [ot.descripcion, !ubicComun && it.ubicacion ? 'Ubicación: ' + ubicTxt(it.ubicacion) : ''].filter(Boolean).join('\n');
+        const cab = { desc: `${otNum(ot.nOT)} · ${ot.titulo}`, sub, monto: it.neto, principal: true };
+        if (resumida) { rows.push(cab); return; }
+        cab.monto = null;
+        rows.push(cab);
+        repartirRecargo(filas(it.lineas, opcFilas(it)), it.neto).forEach(r => rows.push(Object.assign(r, { sangria: true })));
+        rows.push({ desc: 'Subtotal ' + otNum(ot.nOT), monto: it.neto, subtotal: true });
+      });
     }
 
     // ── Tabla
@@ -164,34 +189,32 @@ const Cotizacion = (() => {
       y += 8;
     };
     encabezadoTabla();
-    const rows = filas(datos.lineas, {
-      ot, detalleCompras: !!opciones.detalleCompras, detalleMO: !!opciones.detalleMO, agruparMO: !!opciones.agruparMO,
-      tiposOcultos: opciones.tiposOcultos || [], montoLinea: datos.montoLinea
-    });
-    repartirRecargo(rows, totales.neto);
     rows.forEach(r => {
+      const x0 = M + 3 + (r.sangria ? 6 : 0);
       if (r.seccion) {
         saltoSi(16, encabezadoTabla);
-        color(C.arena, 'fill'); doc.rect(M, y, ANCHO, 7, 'F');
-        font('bold', 8.5, C.terra); doc.text(t(r.seccion.toUpperCase()), M + 3, y + 4.8);
-        y += 7;
+        color(C.arena, 'fill'); doc.rect(M + (r.sangria ? 6 : 0), y, ANCHO - (r.sangria ? 6 : 0), 6.5, 'F');
+        font('bold', 8, C.terra); doc.text(t(r.seccion.toUpperCase()), x0, y + 4.5);
+        y += 6.5;
         return;
       }
-      const anchoTxt = ANCHO - colMonto - 6;
-      font(r.principal ? 'bold' : 'normal', r.principal ? 10.5 : 9.5);
+      const anchoTxt = ANCHO - colMonto - 6 - (r.sangria ? 6 : 0);
+      const fuente = () => font(r.principal || r.subtotal ? 'bold' : 'normal', r.principal ? 10.5 : 9.5, C.cafe);
+      fuente();
       const ls = wrap(r.desc, anchoTxt);
       doc.setFontSize(9.5);
       const subs = r.sub ? wrap(r.sub, anchoTxt) : [];
       const alto = Math.max(7.5, ls.length * 4.6 + subs.length * 4.3 + (subs.length ? 1.5 : 0) + 3.2);
-      saltoSi(alto, encabezadoTabla);
-      font(r.principal ? 'bold' : 'normal', r.principal ? 10.5 : 9.5);
-      ls.forEach((w, i) => doc.text(w, M + 3, y + 5 + i * 4.6));
+      saltoSi(alto + (r.principal && multiple ? 10 : 0), encabezadoTabla);
+      if (r.subtotal) { color(C.arena, 'fill'); doc.rect(M, y, ANCHO, alto, 'F'); }
+      fuente();
+      ls.forEach((w, i) => doc.text(w, r.subtotal ? W - M - colMonto - 6 : x0, y + 5 + i * 4.6, r.subtotal ? { align: 'right' } : undefined));
       if (subs.length) {
         font('normal', 9.5, C.cafe2);
-        subs.forEach((w, i) => doc.text(w, M + 3, y + 5 + ls.length * 4.6 + 1.5 + i * 4.3));
+        subs.forEach((w, i) => doc.text(w, x0, y + 5 + ls.length * 4.6 + 1.5 + i * 4.3));
       }
-      font('bold', r.principal ? 10.5 : 9.5, C.cafe); doc.text(clp(r.monto), W - M - 3, y + 5, { align: 'right' });
-      color(C.linea, 'draw'); doc.setLineWidth(0.2); doc.line(M, y + alto, W - M, y + alto);
+      if (r.monto != null) { font('bold', r.principal ? 10.5 : 9.5, C.cafe); doc.text(clp(r.monto), W - M - 3, y + 5, { align: 'right' }); }
+      if (!(r.principal && multiple && !resumida)) { color(C.linea, 'draw'); doc.setLineWidth(0.2); doc.line(M, y + alto, W - M, y + alto); }
       y += alto;
     });
     if (!rows.length) { font('italic', 9.5, C.gris); doc.text('Sin ítems incluidos.', M + 3, y + 5); y += 8; }
@@ -217,7 +240,7 @@ const Cotizacion = (() => {
       saltoSi(16);
       font('bold', 8, C.terra); doc.text('CONDICIONES', M, y); y += 5;
       font('normal', 9, C.cafe2);
-      cond.split(/\r?\n/).forEach(p => wrap(p, ANCHO).forEach(w => { saltoSi(5); doc.text(w, M, y); y += 4.3; }));
+      wrap(cond, ANCHO).forEach(w => { saltoSi(5); doc.text(w, M, y); y += 4.3; });
       y += 5;
     }
 
@@ -227,37 +250,47 @@ const Cotizacion = (() => {
     font('normal', 10); doc.text('Atentamente,', M, y); y += 7;
     firma.forEach((ln, i) => { font(i === 0 ? 'bold' : 'normal', i === 0 ? 10.5 : 9.5, i === 0 ? C.cafe : C.cafe2); doc.text(t(ln), M, y); y += 4.8; });
 
-    // ── Anexo fotográfico
+    // ── Anexo fotográfico (agrupado por OT si hay varias)
     const fotos = (datos.fotos || []).filter(f => f.data);
     if (fotos.length) {
       doc.addPage(); y = M + 2;
       font('bold', 14, C.terra); doc.text('Anexo fotográfico', M, y + 4);
-      font('normal', 10, C.cafe2); doc.text(t(numero + ' · ' + ot.titulo), M, y + 10);
+      font('normal', 10, C.cafe2); doc.text(t(numero + (multiple ? '' : ' · ' + items[0].ot.titulo)), M, y + 10);
       y += 17;
       const gw = (ANCHO - 8) / 2, gh = 72;
       const orden = ['Antes', 'Durante', 'Después'];
-      const lista = fotos.slice().sort((a, b) => orden.indexOf(a.etapa) - orden.indexOf(b.etapa));
       const leyenda = f => [String(f.etapa || '').toUpperCase()].concat(f.descripcion ? wrap(f.descripcion, gw) : []);
-      for (let i = 0; i < lista.length; i += 2) {
-        const par = lista.slice(i, i + 2);
-        doc.setFontSize(8.5);
-        const capAlto = Math.max(...par.map(f => leyenda(f).length * 3.8));
-        saltoSi(gh + capAlto + 6);
-        par.forEach((f, k) => {
-          const x = M + k * (gw + 8);
-          const src = 'data:image/jpeg;base64,' + f.data;
-          let p; try { p = doc.getImageProperties(src); } catch (e) { return; }
-          const r = Math.min(gw / p.width, gh / p.height);
-          const iw = p.width * r, ih = p.height * r;
-          color(C.arena, 'fill'); doc.rect(x, y, gw, gh, 'F');
-          doc.addImage(src, 'JPEG', x + (gw - iw) / 2, y + (gh - ih) / 2, iw, ih, undefined, 'FAST');
-          leyenda(f).forEach((w, j) => {
-            font(j === 0 ? 'bold' : 'normal', j === 0 ? 8 : 8.5, j === 0 ? C.terra : C.cafe2);  // etapa en color, descripción debajo
-            doc.text(w, x, y + gh + 4.5 + j * 3.8);
+      items.forEach(it => {
+        const lista = fotos.filter(f => String(f.nOT) === String(it.ot.nOT)).sort((a, b) => orden.indexOf(a.etapa) - orden.indexOf(b.etapa));
+        if (!lista.length) return;
+        if (multiple) {
+          saltoSi(12 + gh);
+          font('bold', 10, C.cafe); doc.text(t(`${otNum(it.ot.nOT)} · ${it.ot.titulo}`), M, y + 4);
+          color(C.linea, 'draw'); doc.setLineWidth(0.3); doc.line(M, y + 6.5, W - M, y + 6.5);
+          y += 10;
+        }
+        for (let i = 0; i < lista.length; i += 2) {
+          const par = lista.slice(i, i + 2);
+          doc.setFontSize(8.5);
+          const capAlto = Math.max(...par.map(f => leyenda(f).length * 3.8));
+          saltoSi(gh + capAlto + 6);
+          par.forEach((f, k) => {
+            const x = M + k * (gw + 8);
+            const src = 'data:image/jpeg;base64,' + f.data;
+            let p; try { p = doc.getImageProperties(src); } catch (e) { return; }
+            const r = Math.min(gw / p.width, gh / p.height);
+            const iw = p.width * r, ih = p.height * r;
+            color(C.arena, 'fill'); doc.rect(x, y, gw, gh, 'F');
+            doc.addImage(src, 'JPEG', x + (gw - iw) / 2, y + (gh - ih) / 2, iw, ih, undefined, 'FAST');
+            leyenda(f).forEach((w, j) => {
+              font(j === 0 ? 'bold' : 'normal', j === 0 ? 8 : 8.5, j === 0 ? C.terra : C.cafe2);
+              doc.text(w, x, y + gh + 4.5 + j * 3.8);
+            });
           });
-        });
-        y += gh + capAlto + 8;
-      }
+          y += gh + capAlto + 8;
+        }
+        y += 2;
+      });
     }
 
     // ── Pie en todas las páginas

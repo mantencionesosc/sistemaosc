@@ -3,7 +3,7 @@
 App web para registrar las **órdenes de trabajo (OT)** de Mantenciones OSC desde el celular.
 La fuente de verdad es una **planilla de Google Sheets** y el backend es **Apps Script**.
 
-**Versión 2.2 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
+**Versión 2.3 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
 
 **Próxima etapa:** asignación de OC, folio SII y resumen por cliente (etapa 3).
 
@@ -36,6 +36,10 @@ Cada línea guarda el valor hora vigente cuando se creó y cada OT guarda el % d
 - **Por defecto la cotización es resumida:** una sola fila con lo que pidió el cliente, el detalle del pedido y el valor neto; después, IVA y total.
 - Al generarla puedes marcar **"Mostrar gestión de compras"** (lista lo comprado; se puede ocultar por tipo) y **"Mostrar mano de obra"** (cada proceso, o agrupada por categoría). Lo que no marques queda en una línea resumida.
 - El recargo general nunca aparece como línea: se reparte en los montos.
+- **Numeración:** todas las cotizaciones usan un solo correlativo, **COT-AAAA-NNN** (por ejemplo, COT-2026-001), con versiones v1, v2… Las generadas antes de la versión 2.3 conservan su número (OT-0001 v1).
+- **Varias OT en una cotización:** en la lista de OT, *☑ Seleccionar para cotizar juntas* → marca las OT (mismo cliente) → *Cotizar juntas*. La app avisa si las OT tienen solicitantes o edificios distintos. Cada OT aparece con su título, detalle y valor; las fotos vienen desmarcadas por defecto.
+- **Atención:** al generar se elige una persona, que va en el encabezado.
+- **Estados:** *Vigente* (la última), *Reemplazada* (automático al generar una versión nueva), *Descartada* y *Aprobada* (manuales, tocando la cotización en la OT).
 - Los valores por defecto de estas casillas y las condiciones se configuran en Config → Cotizaciones. La firma y los datos del emisor salen de Config → Datos de la empresa.
 
 ## Instalación (una sola vez, con la cuenta de Google de Mantenciones)
