@@ -11,7 +11,7 @@
  *      (Ejecutar como: Yo · Quién tiene acceso: Cualquier usuario).
  */
 
-const VERSION = '3.0';
+const VERSION = '3.1';
 const ESTADOS_COT = ['Vigente', 'Reemplazada', 'Descartada', 'Aprobada'];
 
 // ════════════════════════════════════════════════════════════ ESQUEMA
@@ -27,6 +27,14 @@ const SCHEMA = {
   ],
   TiposItem: [
     ['id', 'ID'], ['nombre', 'Nombre'], ['orden', 'Orden'], ['activo', 'Activo']
+  ],
+  // desde v3.1: trabajos cobrados por cantidad (m², metro lineal, pulgada…)
+  Unidades: [
+    ['id', 'ID'], ['nombre', 'Unidad'], ['orden', 'Orden'], ['activo', 'Activo']
+  ],
+  Tarifario: [
+    ['id', 'ID'], ['nombre', 'Servicio'], ['categoriaId', 'Categoría ID'], ['unidad', 'Unidad'],
+    ['precio', 'Precio unitario'], ['orden', 'Orden'], ['activo', 'Activo']
   ],
   Clientes: [
     ['id', 'ID'], ['razonSocial', 'Razón social'], ['nombreCorto', 'Nombre corto'], ['rut', 'RUT'],
@@ -59,7 +67,9 @@ const SCHEMA = {
     ['horas', 'Horas'], ['hh', 'HH aplicado'], ['factor', 'Factor aplicado'],
     ['cantidad', 'Cantidad'], ['costoUnit', 'Costo unitario'], ['recargoPct', '% Recargo'],
     ['monto', 'Monto'], ['incluida', 'Incluida'],
-    ['tipoItemId', 'Tipo de ítem ID'], ['tipoItem', 'Tipo de ítem']
+    ['tipoItemId', 'Tipo de ítem ID'], ['tipoItem', 'Tipo de ítem'],
+    // desde v3.1: mano de obra por cantidad
+    ['modo', 'Modo (Horas/Cantidad)'], ['unidad', 'Unidad'], ['precioUnit', 'Precio unitario'], ['tarifaId', 'Tarifa ID']
   ],
   Fotos: [
     ['id', 'ID'], ['nOT', 'N° OT'], ['fecha', 'Fecha'], ['etapa', 'Etapa'], ['descripcion', 'Descripción'],
@@ -113,7 +123,8 @@ const CONFIG_DEFAULTS = [
   ['COT_INCLUIR_CONDICIONES', 'NO', 'SI/NO: valor por defecto de "Incluir condiciones" al generar una cotización'],
   ['COT_MO_AGRUPADA', 'NO', 'SI/NO: valor por defecto de "Mano de obra agrupada por categoría"'],
   ['COT_DETALLE_COMPRAS', 'NO', 'SI/NO: valor por defecto de "Mostrar gestión de compras" (NO = cotización resumida)'],
-  ['COT_DETALLE_MO', 'NO', 'SI/NO: valor por defecto de "Mostrar mano de obra" (NO = cotización resumida)']
+  ['COT_DETALLE_MO', 'NO', 'SI/NO: valor por defecto de "Mostrar mano de obra" (NO = cotización resumida)'],
+  ['COT_MOSTRAR_CANTIDAD', 'SI', 'SI/NO: al mostrar la mano de obra, indicar la cantidad de los trabajos por cantidad (ej: 81,6 m²)']
 ];
 
 const ETAPAS_FOTO = ['Antes', 'Durante', 'Después'];
@@ -122,6 +133,7 @@ const CATEGORIAS_DEFAULT = [
   'Gestión de compras', 'Mantenciones (varios)', 'Electricidad', 'Mueblería', 'Carpintería', 'Gasfitería'
 ];
 const TIPOS_ITEM_DEFAULT = ['Material', 'Insumo', 'Arriendo de herramienta', 'Flete / transporte', 'Combustible'];
+const UNIDADES_DEFAULT = ['m²', 'm lineal', 'pulgada', 'unidad', 'punto'];
 const TIPOS_LINEA = ['Compra', 'Tiempo de gestión', 'Mano de obra'];
 
 const ESTADOS_OT = ['Pendiente', 'En curso', 'Terminada', 'Anulada'];
@@ -174,6 +186,12 @@ function setup() {
     readTable_('Categorias').forEach(function (c, i) {
       if (c.valorHora === '' || c.valorHora == null) catSh.getRange(i + 2, vhCol).setValue(Math.round(hhBase * (num_(c.factor) || 1)));
     });
+  }
+
+  // Unidades por defecto (v3.1)
+  if (readTable_('Unidades').length === 0) {
+    const uSh = ss.getSheetByName('Unidades');
+    UNIDADES_DEFAULT.forEach(function (n, i) { uSh.appendRow(['UNI-' + (i + 1), n, i + 1, true]); });
   }
 
   // Tipos de ítem de compra por defecto
@@ -266,6 +284,8 @@ const ACTIONS = {
   // Guardado en lote: una sola petición para varias filas
   saveCategorias: function (r) { return withLock_(function () { return { items: (r.items || []).map(saveCategoria_) }; }); },
   saveTiposItem: function (r) { return withLock_(function () { return { items: (r.items || []).map(saveTipoItem_) }; }); },
+  saveUnidades: function (r) { return withLock_(function () { return { items: (r.items || []).map(saveUnidad_) }; }); },
+  saveTarifario: function (r) { return withLock_(function () { return { items: (r.items || []).map(saveTarifa_) }; }); },
   saveCliente: function (r) { return withLock_(function () { return saveSimple_('Clientes', 'CLI', r.item, validarCliente_); }); },
   saveSolicitante: function (r) { return withLock_(function () { return saveSimple_('Solicitantes', 'SOL', r.item, validarSolicitante_); }); },
   saveUbicacion: function (r) { return withLock_(function () { return saveSimple_('Ubicaciones', 'UBI', r.item, validarUbicacion_); }); },
@@ -289,6 +309,8 @@ function getAll_() {
     config: configObj_(),
     categorias: readTable_('Categorias'),
     tiposItem: readTable_('TiposItem'),
+    unidades: readTable_('Unidades'),
+    tarifario: readTable_('Tarifario'),
     clientes: readTable_('Clientes'),
     solicitantes: readTable_('Solicitantes'),
     ubicaciones: readTable_('Ubicaciones'),
@@ -365,6 +387,31 @@ function saveTipoItem_(item) {
   return { item: obj };
 }
 
+function saveUnidad_(item) {
+  const nombre = String(item && item.nombre || '').trim();
+  if (!nombre) throw new Error('La unidad necesita un nombre');
+  const rows = readTable_('Unidades');
+  const obj = { id: item.id || nextId_('UNI', rows, 'id'), nombre: nombre, orden: item.orden != null && item.orden !== '' ? num_(item.orden) : rows.length + 1, activo: item.activo !== false };
+  upsert_('Unidades', 'id', obj);
+  return obj;
+}
+
+function saveTarifa_(item) {
+  const nombre = String(item && item.nombre || '').trim();
+  if (!nombre) throw new Error('El servicio del tarifario necesita un nombre');
+  const cat = readTable_('Categorias').find(function (c) { return c.id === item.categoriaId; });
+  if (!cat || cat.uso === 'Gestión') throw new Error('"' + nombre + '" necesita una categoría de oficio');
+  const unidad = String(item.unidad || '').trim();
+  if (!unidad) throw new Error('"' + nombre + '" necesita una unidad');
+  const precio = Math.round(num_(item.precio));
+  if (!(precio > 0)) throw new Error('El precio de "' + nombre + '" debe ser mayor que 0');
+  const rows = readTable_('Tarifario');
+  const obj = { id: item.id || nextId_('TAR', rows, 'id'), nombre: nombre, categoriaId: cat.id, unidad: unidad, precio: precio,
+    orden: item.orden != null && item.orden !== '' ? num_(item.orden) : rows.length + 1, activo: item.activo !== false };
+  upsert_('Tarifario', 'id', obj);
+  return obj;
+}
+
 function validarCliente_(o) {
   o.razonSocial = String(o.razonSocial || '').trim();
   if (!o.razonSocial) throw new Error('El cliente necesita razón social');
@@ -421,9 +468,10 @@ function saveOT_(ot, lineas) {
   const cfg = configObj_();
   const cats = readTable_('Categorias');
   const tipos = readTable_('TiposItem');
+  const tarifas = readTable_('Tarifario');
   const nOT = esNueva ? nextNumber_(ots, 'nOT') : Number(ot.nOT);
   const hoy = today_();
-  const lineasOk = lineas.map(function (l, i) { return normalizarLinea_(l, i, nOT, cfg, cats, tipos, hoy); });
+  const lineasOk = lineas.map(function (l, i) { return normalizarLinea_(l, i, nOT, cfg, cats, tipos, hoy, tarifas); });
 
   // Subtotal al costo + recargo general (congelado en la OT al crearla) = neto
   const subtotal = lineasOk.reduce(function (s, l) { return s + (l.incluida ? l.monto : 0); }, 0);
@@ -464,7 +512,7 @@ function saveOT_(ot, lineas) {
   return { ot: obj, lineas: lineasOk };
 }
 
-function normalizarLinea_(l, i, nOT, cfg, cats, tipos, hoy) {
+function normalizarLinea_(l, i, nOT, cfg, cats, tipos, hoy, tarifas) {
   let tipo = l.tipo === 'Material' ? 'Compra' : l.tipo;  // compatibilidad con la versión anterior
   if (TIPOS_LINEA.indexOf(tipo) === -1) tipo = 'Mano de obra';
   const n = 'La línea ' + (i + 1);
@@ -475,8 +523,26 @@ function normalizarLinea_(l, i, nOT, cfg, cats, tipos, hoy) {
     nOT: nOT, orden: i + 1, fecha: l.fecha || hoy, tipo: tipo,
     categoriaId: '', categoria: '', descripcion: desc,
     horas: '', hh: '', factor: '', cantidad: '', costoUnit: '', recargoPct: '',
-    monto: 0, incluida: l.incluida !== false, tipoItemId: '', tipoItem: ''
+    monto: 0, incluida: l.incluida !== false, tipoItemId: '', tipoItem: '',
+    modo: '', unidad: '', precioUnit: '', tarifaId: ''
   };
+  if (tipo === 'Mano de obra' && l.modo === 'Cantidad') {
+    // Trabajo cobrado por cantidad: cantidad × precio unitario (congelado en la línea)
+    const tarifa = l.tarifaId ? (tarifas || []).find(function (t) { return t.id === l.tarifaId; }) : null;
+    const catC = cats.find(function (c) { return c.id === (l.categoriaId || (tarifa && tarifa.categoriaId)); });
+    if (!catC) throw new Error(n + ' necesita una categoría');
+    if (catC.uso === 'Gestión') throw new Error(n + ': el tiempo de gestión de compras va en su propio bloque');
+    const cant = num_(l.cantidad);
+    if (!(cant > 0)) throw new Error(n + ': la cantidad debe ser mayor que 0');
+    const unidad = String(l.unidad || (tarifa && tarifa.unidad) || '').trim();
+    if (!unidad) throw new Error(n + ': falta la unidad');
+    const precio = l.precioUnit !== '' && l.precioUnit != null ? num_(l.precioUnit) : (tarifa ? num_(tarifa.precio) : 0);
+    if (!(precio > 0)) throw new Error(n + ': falta el precio unitario');
+    o.modo = 'Cantidad'; o.categoriaId = catC.id; o.categoria = catC.nombre;
+    o.cantidad = cant; o.unidad = unidad; o.precioUnit = precio; o.tarifaId = tarifa ? tarifa.id : '';
+    o.monto = Math.round(cant * precio);
+    return o;
+  }
   if (tipo === 'Compra') {
     const t = tipos.find(function (x) { return x.id === l.tipoItemId; });
     if (!t) throw new Error(n + ': elige el tipo de ítem (material, insumo…)');
@@ -506,7 +572,7 @@ function normalizarLinea_(l, i, nOT, cfg, cats, tipos, hoy) {
   // Valor hora congelado: si la línea ya lo trae se respeta; si es nueva se toma el de la categoría
   const hh = l.hh !== '' && l.hh != null ? num_(l.hh) : num_(cat.valorHora);
   const factor = l.factor !== '' && l.factor != null ? num_(l.factor) : 1;
-  o.categoriaId = cat.id; o.categoria = cat.nombre;
+  o.categoriaId = cat.id; o.categoria = cat.nombre; o.modo = 'Horas';
   o.horas = horas; o.hh = hh; o.factor = factor;
   o.monto = Math.round(horas * hh * factor);
   return o;

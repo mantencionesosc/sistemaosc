@@ -3,7 +3,7 @@
 App web para registrar las **órdenes de trabajo (OT)** de Mantenciones OSC desde el celular.
 La fuente de verdad es una **planilla de Google Sheets** y el backend es **Apps Script**.
 
-**Versión 3.0 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
+**Versión 3.1 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
 
 **Incluye también (v3.0):** órdenes de compra, facturación con folio SII, registro de pagos y panel de ventas.
 
@@ -17,7 +17,9 @@ Cada OT tiene dos bloques:
 - *Ítems de compra*: tipo (Material, Insumo, Arriendo de herramienta, Flete / transporte, Combustible… editable en Config) · cantidad × costo unitario, **al costo**. Si un ítem se marca como **descartado**, queda anotado pero no suma.
 - *Tiempo de gestión*: horas × valor hora de la categoría "Gestión de compras". Mínimo 1 h, de media en media.
 
-**🛠 Mano de obra**: horas × valor hora de la categoría de oficio.
+**🛠 Mano de obra**, en dos modos:
+- *Por horas*: horas × valor hora de la categoría de oficio.
+- *Por cantidad*: cantidad × precio unitario (ej: 81,6 m² × $8.000). El precio sale del **Tarifario** (Config) o se escribe a mano, y queda congelado en la línea. Las unidades (m², m lineal, pulgada, unidad, punto…) se editan en Config.
 
 **Totales**
 - Subtotal (costo) = suma de lo incluido

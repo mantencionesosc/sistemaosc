@@ -339,3 +339,11 @@ hr.sep { border: 0; border-top: 1px solid var(--linea); margin: 14px 0 0; }
 .tabla th, .tabla td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--linea); }
 .tabla th:first-child, .tabla td:first-child { text-align: left; }
 .bottom-nav a { font-size: 10.5px; padding-left: 2px; padding-right: 2px; }
+
+/* ── Tarifario ────────────────────────── */
+.tar-row { border: 1.5px solid var(--linea); border-radius: 12px; padding: 10px; margin-bottom: 10px; background: var(--crema); }
+.tar-row.inactivo { opacity: .55; }
+.tar-sub { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.tar-sub select, .tar-sub input { min-height: 42px; padding: 8px 10px; font-size: 15px; }
+.tf-actl { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; }
+.tf-actl input { width: 20px; height: 20px; min-height: 0; accent-color: var(--terra); }

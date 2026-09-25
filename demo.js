@@ -3,7 +3,7 @@
  * Sirve para probar la app antes de conectar la planilla. Nada de esto llega a Google Sheets.
  */
 const Demo = (() => {
-  const KEY = 'osc_demo_db_v7';
+  const KEY = 'osc_demo_db_v8';
   const IMG = {};  // fotos de la demo: solo en memoria (no caben en el almacenamiento del navegador)
 
   function seed() {
@@ -19,7 +19,7 @@ const Demo = (() => {
         HH_BASE: 0, IVA_PCT: 19, RECARGO_MATERIALES_PCT: 30,
         EMPRESA_NOMBRE: 'Mantenciones OSC', EMPRESA_RAZON_SOCIAL: '', EMPRESA_RUT: '',
         EMPRESA_GIRO: '', EMPRESA_DIRECCION: '', EMPRESA_TELEFONO: '', EMPRESA_CORREO: '', EMPRESA_FIRMA: '',
-        COT_CONDICIONES: '', COT_INCLUIR_CONDICIONES: 'NO', COT_MO_AGRUPADA: 'NO', COT_DETALLE_COMPRAS: 'NO', COT_DETALLE_MO: 'NO'
+        COT_CONDICIONES: '', COT_INCLUIR_CONDICIONES: 'NO', COT_MO_AGRUPADA: 'NO', COT_DETALLE_COMPRAS: 'NO', COT_DETALLE_MO: 'NO', COT_MOSTRAR_CANTIDAD: 'SI'
       },
       categorias: [
         { id: 'CAT-1', nombre: 'Gestión de compras', factor: 1, valorHora: 10000, orden: 1, activa: true, uso: 'Gestión' },
@@ -35,6 +35,13 @@ const Demo = (() => {
         { id: 'TIP-3', nombre: 'Arriendo de herramienta', orden: 3, activo: true },
         { id: 'TIP-4', nombre: 'Flete / transporte', orden: 4, activo: true },
         { id: 'TIP-5', nombre: 'Combustible', orden: 5, activo: true }
+      ],
+      unidades: ['m²', 'm lineal', 'pulgada', 'unidad', 'punto'].map((n, i) => ({ id: 'UNI-' + (i + 1), nombre: n, orden: i + 1, activo: true })),
+      tarifario: [
+        { id: 'TAR-1', nombre: 'Desinstalación de piso', categoriaId: 'CAT-5', unidad: 'm²', precio: 3000, orden: 1, activo: true },
+        { id: 'TAR-2', nombre: 'Instalación de piso flotante', categoriaId: 'CAT-5', unidad: 'm²', precio: 8000, orden: 2, activo: true },
+        { id: 'TAR-3', nombre: 'Pintura de muro (2 manos)', categoriaId: 'CAT-2', unidad: 'm²', precio: 4500, orden: 3, activo: true },
+        { id: 'TAR-4', nombre: 'Instalación de punto eléctrico', categoriaId: 'CAT-3', unidad: 'punto', precio: 25000, orden: 4, activo: true }
       ],
       fotos: [],
       cotizaciones: [
@@ -228,6 +235,21 @@ const Demo = (() => {
     },
     saveCategorias: ({ items }) => ({ items: items.map(item => actions.saveCategoria({ item }).item) }),
     saveTiposItem: ({ items }) => ({ items: items.map(item => actions.saveTipoItem({ item }).item) }),
+    saveUnidades: ({ items }) => {
+      const d = load();
+      return { items: items.map(it => { if (!String(it.nombre || '').trim()) throw new Error('La unidad necesita un nombre');
+        const o = { id: it.id || nextId('UNI', d.unidades), nombre: it.nombre.trim(), orden: it.orden || d.unidades.length + 1, activo: it.activo !== false }; upsert(d.unidades, 'id', o); return clone(o); }) };
+    },
+    saveTarifario: ({ items }) => {
+      const d = load();
+      return { items: items.map(it => {
+        const cat = d.categorias.find(c => c.id === it.categoriaId);
+        if (!String(it.nombre || '').trim()) throw new Error('El servicio necesita un nombre');
+        if (!cat || cat.uso === 'Gestión') throw new Error('"' + it.nombre + '" necesita una categoría de oficio');
+        if (!it.unidad || !(num(it.precio) > 0)) throw new Error('Completa unidad y precio de "' + it.nombre + '"');
+        const o = { id: it.id || nextId('TAR', d.tarifario), nombre: it.nombre.trim(), categoriaId: cat.id, unidad: it.unidad, precio: Math.round(num(it.precio)), orden: it.orden || d.tarifario.length + 1, activo: it.activo !== false };
+        upsert(d.tarifario, 'id', o); return clone(o); }) };
+    },
     saveCliente: ({ item }) => saveSimple('clientes', 'CLI', item, o => { if (!String(o.razonSocial || '').trim()) throw new Error('El cliente necesita razón social'); }),
     saveSolicitante: ({ item }) => saveSimple('solicitantes', 'SOL', item, o => { if (!String(o.nombre || '').trim()) throw new Error('El solicitante necesita nombre'); }),
     saveUbicacion: ({ item }) => saveSimple('ubicaciones', 'UBI', item, o => { if (!String(o.edificio || '').trim()) throw new Error('La ubicación necesita el nombre del edificio'); }),
@@ -244,7 +266,7 @@ const Demo = (() => {
       const ubi = d.ubicaciones.find(u => u.id === ot.ubicacionId);
       const nOT = esNueva ? d.ots.reduce((m, o) => Math.max(m, +o.nOT), 0) + 1 : +ot.nOT;
       const ls = lineas.map((l, i) => {
-        const r = Calc.normalizarLinea(l, i, d.config, d.categorias, d.tiposItem);
+        const r = Calc.normalizarLinea(l, i, d.config, d.categorias, d.tiposItem, d.tarifario || []);
         r.id = l.id || ('L-' + nOT + '-' + Math.random().toString(36).slice(2, 10));
         r.nOT = nOT; r.fecha = l.fecha || hoy();
         return r;

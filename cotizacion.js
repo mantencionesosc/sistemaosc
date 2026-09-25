@@ -9,7 +9,7 @@ const Cotizacion = (() => {
   const M = 16, W = 210, H = 297, ANCHO = W - 2 * M, PIE = 20;
 
   // Helvetica estándar de jsPDF usa WinAnsi: se reemplazan caracteres fuera de ese juego
-  const t = s => String(s ?? '').replace(/[—–]/g, '-').replace(/…/g, '...').replace(/[“”]/g, '"').replace(/[‘’]/g, "'")
+  const t = s => String(s ?? '').replace(/²/g, '2').replace(/³/g, '3').replace(/[—–]/g, '-').replace(/…/g, '...').replace(/[“”]/g, '"').replace(/[‘’]/g, "'")
     .replace(/[^\x00-\xFF]/g, '');
   const clp = n => '$' + Math.round(Number(n) || 0).toLocaleString('es-CL');
   const fecha = iso => { const [y, m, d] = String(iso || '').slice(0, 10).split('-'); return d ? `${d}-${m}-${y}` : ''; };
@@ -19,7 +19,7 @@ const Cotizacion = (() => {
    *  Sin detalle: una sola fila con lo que pidió el cliente (título + detalle) y su valor.
    *  detalleCompras: lista lo comprado (salvo los tipos ocultos, que se suman a la línea de gestión).
    *  detalleMO: lista cada proceso de mano de obra (o por categoría si agruparMO). */
-  function filas(lineas, { ot = {}, detalleCompras = false, detalleMO = false, agruparMO = false, tiposOcultos = [], montoLinea }) {
+  function filas(lineas, { ot = {}, detalleCompras = false, detalleMO = false, agruparMO = false, mostrarCantidad = false, tiposOcultos = [], montoLinea }) {
     const inc = lineas.filter(l => l.incluida !== false);
     const suma = ls => ls.reduce((s, l) => s + montoLinea(l), 0);
     const compras = inc.filter(l => l.tipo === 'Compra' || l.tipo === 'Material');
@@ -52,7 +52,8 @@ const Cotizacion = (() => {
         mo.forEach(l => g.set(l.categoria || 'Mano de obra', (g.get(l.categoria || 'Mano de obra') || 0) + montoLinea(l)));
         g.forEach((monto, cat) => out.push({ desc: cat, monto }));
       } else {
-        mo.forEach(l => out.push({ desc: l.descripcion, monto: montoLinea(l) }));
+        const cantTxt = l => mostrarCantidad && l.modo === 'Cantidad' ? ` (${String(Number(l.cantidad) || 0).replace('.', ',')} ${l.unidad || ''})`.replace(' )', ')') : '';
+        mo.forEach(l => out.push({ desc: l.descripcion + cantTxt(l), monto: montoLinea(l) }));
       }
     }
     return out;
@@ -160,7 +161,7 @@ const Cotizacion = (() => {
 
     // ── Filas de la tabla
     const opcFilas = it => ({
-      ot: it.ot, detalleCompras: !!opciones.detalleCompras, detalleMO: !!opciones.detalleMO, agruparMO: !!opciones.agruparMO,
+      ot: it.ot, detalleCompras: !!opciones.detalleCompras, detalleMO: !!opciones.detalleMO, agruparMO: !!opciones.agruparMO, mostrarCantidad: !!opciones.mostrarCantidad,
       tiposOcultos: opciones.tiposOcultos || [], montoLinea: datos.montoLinea
     });
     let rows = [];

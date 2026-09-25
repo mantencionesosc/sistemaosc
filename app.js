@@ -13,11 +13,11 @@ let API_URL = LS.get('osc_url');
 let TOKEN = LS.get('osc_token');
 let DEMO = LS.get('osc_demo') === '1';
 
-const S = { config: {}, categorias: [], tiposItem: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [], ordenesCompra: [], facturas: [] };
+const S = { config: {}, categorias: [], tiposItem: [], unidades: [], tarifario: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [], ordenesCompra: [], facturas: [] };
 const FOTOS = {};   // nOT -> [{...foto, data}] (se cargan al abrir la OT)
 let SYNCED = false;
-const APP_VERSION = '3.0';
-const API_REQUERIDA = '3.0';  // versión mínima del Apps Script que necesita esta app
+const APP_VERSION = '3.1';
+const API_REQUERIDA = '3.1';  // versión mínima del Apps Script que necesita esta app
 const cmpVer = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
 let API_VERSION = '';
 
@@ -32,7 +32,8 @@ const Calc = {
   vacio: v => v === '' || v === null || v === undefined,
   tipoDe: l => (l.tipo === 'Material' ? 'Compra' : TIPOS_LINEA.includes(l.tipo) ? l.tipo : 'Mano de obra'),
   catGestion: cats => cats.find(c => c.uso === 'Gestión'),
-  normalizarLinea(l, i, cfg, cats, tipos) {
+  esCantidad: l => Calc.tipoDe(l) === 'Mano de obra' && l.modo === 'Cantidad',
+  normalizarLinea(l, i, cfg, cats, tipos, tarifas = []) {
     const tipo = Calc.tipoDe(l);
     const n = 'La línea ' + (i + 1);
     const desc = String(l.descripcion || '').trim();
@@ -41,8 +42,24 @@ const Calc = {
       id: l.id || '', nOT: l.nOT || '', orden: i + 1, fecha: l.fecha || '', tipo,
       categoriaId: '', categoria: '', descripcion: desc,
       horas: '', hh: '', factor: '', cantidad: '', costoUnit: '', recargoPct: '',
-      monto: 0, incluida: l.incluida !== false, tipoItemId: '', tipoItem: ''
+      monto: 0, incluida: l.incluida !== false, tipoItemId: '', tipoItem: '',
+      modo: '', unidad: '', precioUnit: '', tarifaId: ''
     };
+    if (tipo === 'Mano de obra' && l.modo === 'Cantidad') {
+      const tarifa = l.tarifaId ? tarifas.find(t => t.id === l.tarifaId) : null;
+      const cat = cats.find(c => c.id === (l.categoriaId || (tarifa && tarifa.categoriaId)));
+      if (!cat) throw new Error(n + ' necesita una categoría');
+      if (cat.uso === 'Gestión') throw new Error(n + ': el tiempo de gestión de compras va en su propio bloque');
+      const cant = Calc.num(l.cantidad);
+      if (!(cant > 0)) throw new Error(n + ': la cantidad debe ser mayor que 0');
+      const unidad = String(l.unidad || (tarifa && tarifa.unidad) || '').trim();
+      if (!unidad) throw new Error(n + ': falta la unidad');
+      const precio = Calc.vacio(l.precioUnit) ? (tarifa ? Calc.num(tarifa.precio) : 0) : Calc.num(l.precioUnit);
+      if (!(precio > 0)) throw new Error(n + ': falta el precio unitario');
+      Object.assign(o, { modo: 'Cantidad', categoriaId: cat.id, categoria: cat.nombre, cantidad: cant, unidad, precioUnit: precio, tarifaId: tarifa ? tarifa.id : '' });
+      o.monto = Calc.montoLinea(o);
+      return o;
+    }
     if (tipo === 'Compra') {
       const t = tipos.find(x => x.id === l.tipoItemId);
       if (!t) throw new Error(n + ': elige el tipo de ítem (material, insumo…)');
@@ -67,7 +84,7 @@ const Calc = {
     const horas = Calc.num(l.horas);
     if (horas < 1) throw new Error(n + ': mínimo 1 hora');
     if (Math.round(horas * 2) !== horas * 2) throw new Error(n + ': las horas van de media en media (1; 1,5; 2…)');
-    o.categoriaId = cat.id; o.categoria = cat.nombre;
+    o.categoriaId = cat.id; o.categoria = cat.nombre; o.modo = 'Horas';
     o.horas = horas;
     o.hh = Calc.vacio(l.hh) ? Calc.num(cat.valorHora) : Calc.num(l.hh);   // valor hora congelado
     o.factor = Calc.vacio(l.factor) ? 1 : Calc.num(l.factor);
@@ -75,6 +92,7 @@ const Calc = {
     return o;
   },
   montoLinea(l) {
+    if (Calc.esCantidad(l)) return Math.round(Calc.num(l.cantidad) * Calc.num(l.precioUnit));
     if (Calc.tipoDe(l) === 'Compra') return Math.round(Calc.num(l.cantidad) * Calc.num(l.costoUnit) * (1 + Calc.num(l.recargoPct) / 100));
     return Math.round(Calc.num(l.horas) * Calc.num(l.hh) * (Calc.vacio(l.factor) ? 1 : Calc.num(l.factor)));
   },
@@ -151,7 +169,7 @@ async function sync(silencioso = false) {
   try {
     const d = await api('getAll');
     Object.assign(S, {
-      config: d.config || {}, categorias: d.categorias || [], tiposItem: d.tiposItem || [], clientes: d.clientes || [],
+      config: d.config || {}, categorias: d.categorias || [], tiposItem: d.tiposItem || [], unidades: d.unidades || [], tarifario: d.tarifario || [], clientes: d.clientes || [],
       solicitantes: d.solicitantes || [], ubicaciones: d.ubicaciones || [], ots: d.ots || [], lineas: d.lineas || [],
       fotos: d.fotos || [], cotizaciones: d.cotizaciones || [], ordenesCompra: d.ordenesCompra || [], facturas: d.facturas || []
     });
@@ -437,7 +455,9 @@ function bloqueCompras(ro) {
 function htmlLinea(l, i) {
   const tipo = Calc.tipoDe(l);
   const compra = tipo === 'Compra';
-  const calc = compra
+  const calc = Calc.esCantidad(l)
+    ? `${dec(l.cantidad)} ${esc(l.unidad)} × ${clp(l.precioUnit)}`
+    : compra
     ? `${dec(l.cantidad)} × ${clp(l.costoUnit)}${Calc.num(l.recargoPct) ? ' + ' + dec(l.recargoPct) + '%' : ''}`
     : `${dec(l.horas)} h × ${clp(l.hh)}${Calc.vacio(l.factor) || Calc.num(l.factor) === 1 ? '' : ' × ' + dec(l.factor)}`;
   const etiqueta = compra ? (l.tipoItem || 'Ítem') : tipo === 'Tiempo de gestión' ? 'Tiempo de gestión' : l.categoria;
@@ -515,7 +535,11 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
     l.hh = ''; l.factor = 1; l.recargoPct = 0;
     if (l.tipo === 'Tiempo de gestión' && gestion) { l.categoriaId = gestion.id; l.categoria = gestion.nombre; l.hh = Calc.num(gestion.valorHora); }
     if (l.tipo === 'Compra') { const t = tiposActivos()[0]; if (t) { l.tipoItemId = t.id; l.tipoItem = t.nombre; } }
+    if (l.tipo === 'Mano de obra') { l.modo = 'Horas'; l.unidad = ''; l.precioUnit = ''; l.tarifaId = ''; }
   }
+  const porCant = () => l.tipo === 'Mano de obra' && l.modo === 'Cantidad';
+  const tarifasActivas = () => S.tarifario.filter(t => t.activo !== false).sort((a, b) => Calc.num(a.orden) - Calc.num(b.orden));
+  const unidadesActivas = () => S.unidades.filter(u => u.activo !== false).sort((a, b) => Calc.num(a.orden) - Calc.num(b.orden));
   const compra = l.tipo === 'Compra', tiempo = l.tipo === 'Tiempo de gestión';
   const titulo = compra ? 'Ítem de compra' : tiempo ? 'Tiempo de gestión' : 'Mano de obra';
   const mismoGrupo = ED.lineas.map((x, k) => k).filter(k => Calc.tipoDe(ED.lineas[k]) === l.tipo);
@@ -526,7 +550,11 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
     const oficios = catsActivas().filter(c => c.uso !== 'Gestión');
     const catsLista = catActual && catActual.activa === false && catActual.uso !== 'Gestión' ? oficios.concat([catActual]) : oficios;
     const vhActual = catActual ? Calc.num(catActual.valorHora) : 0;
-    const difiere = !compra && !nueva && catActual && Calc.num(Calc.montoLinea(Object.assign({}, l, { horas: 1 }))) !== vhActual;
+    const difiere = !compra && !porCant() && !nueva && catActual && Calc.num(Calc.montoLinea(Object.assign({}, l, { horas: 1 }))) !== vhActual;
+    const tarifa = porCant() && l.tarifaId ? S.tarifario.find(t => t.id === l.tarifaId) : null;
+    const difierePrecio = porCant() && !nueva && tarifa && Calc.num(tarifa.precio) !== Calc.num(l.precioUnit);
+    const unis = unidadesActivas().map(u => u.nombre);
+    if (l.unidad && !unis.includes(l.unidad)) unis.push(l.unidad);
     const tipos = tiposActivos();
     const tipoActual = S.tiposItem.find(t => t.id === l.tipoItemId);
     const tiposLista = tipoActual && tipoActual.activo === false ? tipos.concat([tipoActual]) : tipos;
@@ -535,11 +563,23 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
       ${compra ? `<label for="l-tipoitem">Tipo de ítem</label>
         <select id="l-tipoitem" ${ro ? 'disabled' : ''}>${tiposLista.map(t => `<option value="${esc(t.id)}" ${t.id === l.tipoItemId ? 'selected' : ''}>${esc(t.nombre)}</option>`).join('')}</select>` : ''}
       ${tiempo ? `<p class="hint" style="margin:0 0 4px">🛒 ${esc(gestion ? gestion.nombre : 'Gestión de compras')} · ${clp(l.hh)} por hora</p>` : ''}
-      ${l.tipo === 'Mano de obra' ? `<label>Categoría</label>
-        <div class="cat-grid" id="l-cats">${catsLista.map(c => `<button type="button" class="cat-btn ${c.id === l.categoriaId ? 'on' : ''}" data-id="${esc(c.id)}" ${ro ? 'disabled' : ''}>${iconoCat(c.nombre)} ${esc(c.nombre)}<small>${clp(c.valorHora)} / h</small></button>`).join('')}</div>` : ''}
+      ${l.tipo === 'Mano de obra' ? `<div class="seg" id="l-modo" style="margin-bottom:4px">
+          <button type="button" data-v="Horas" class="${!porCant() ? 'on' : ''}" ${ro ? 'disabled' : ''}>⏱ Por horas</button>
+          <button type="button" data-v="Cantidad" class="${porCant() ? 'on' : ''}" ${ro ? 'disabled' : ''}>📐 Por cantidad</button>
+        </div>
+        ${porCant() ? `<label for="l-tarifa">Tarifario</label>
+          <select id="l-tarifa" ${ro ? 'disabled' : ''}><option value="">— Precio libre —</option>${tarifasActivas().concat(tarifa && tarifa.activo === false ? [tarifa] : []).map(t => `<option value="${esc(t.id)}" ${t.id === l.tarifaId ? 'selected' : ''}>${esc(t.nombre)} · ${clp(t.precio)} / ${esc(t.unidad)}</option>`).join('')}</select>` : ''}
+        <label>Categoría</label>
+        <div class="cat-grid" id="l-cats">${catsLista.map(c => `<button type="button" class="cat-btn ${c.id === l.categoriaId ? 'on' : ''}" data-id="${esc(c.id)}" ${ro ? 'disabled' : ''}>${iconoCat(c.nombre)} ${esc(c.nombre)}${porCant() ? '' : `<small>${clp(c.valorHora)} / h</small>`}</button>`).join('')}</div>` : ''}
       <label for="l-desc">${compra ? '¿Qué se compró o cotizó?' : tiempo ? '¿Qué gestión se hizo?' : '¿Qué se hizo?'}</label>
       <textarea id="l-desc" placeholder="${compra ? 'Ej: Lavamanos loza blanco (Sodimac)' : tiempo ? 'Ej: Cotizar en 2 ferreterías' : 'Ej: Desinstalación de lavamanos'}" ${ro ? 'readonly' : ''}>${esc(l.descripcion)}</textarea>
-      ${!compra ? `<label for="l-horas">Horas (mínimo 1, de media en media)</label>
+      ${porCant() ? `<div class="row">
+          <div><label for="l-cant">Cantidad</label><input id="l-cant" inputmode="decimal" value="${dec(l.cantidad)}" ${ro ? 'readonly' : ''}></div>
+          <div><label for="l-unidad">Unidad</label><select id="l-unidad" ${ro ? 'disabled' : ''}><option value="">—</option>${unis.map(u => `<option ${u === l.unidad ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></div>
+        </div>
+        <label for="l-precio">Precio por ${esc(l.unidad || 'unidad')}</label>
+        <input id="l-precio" inputmode="numeric" placeholder="$" value="${Calc.vacio(l.precioUnit) ? '' : Math.round(Calc.num(l.precioUnit)).toLocaleString('es-CL')}" ${ro ? 'readonly' : ''}>`
+      : !compra ? `<label for="l-horas">Horas (mínimo 1, de media en media)</label>
         <div class="stepper">
           <button type="button" id="h-menos" ${ro ? 'disabled' : ''}>−</button>
           <input id="l-horas" inputmode="decimal" value="${dec(l.horas)}" ${ro ? 'readonly' : ''}>
@@ -555,6 +595,7 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
       <label class="check"><input type="checkbox" id="l-incl" ${l.incluida !== false ? 'checked' : ''} ${ro ? 'disabled' : ''}> ${compra ? 'Elegido (se cobra)' : 'Incluir en la cotización'}</label>
       ${compra ? `<p class="hint" style="margin-top:4px">Desmárcalo si es una alternativa descartada: queda anotada pero no suma.</p>` : ''}
       <div class="preview"><div class="calc" id="l-calc"></div><div class="monto" id="l-monto"></div></div>
+      ${difierePrecio && !ro ? `<div class="congelado">Esta línea usa el precio de cuando se creó (${clp(l.precioUnit)}). Precio actual del tarifario: ${clp(tarifa.precio)}. <button type="button" id="l-act-precio">Usar precio actual</button></div>` : ''}
       ${difiere && !ro ? `<div class="congelado">Esta línea usa el valor hora de cuando se creó (${clp(Calc.montoLinea(Object.assign({}, l, { horas: 1 })))}). Valor actual de ${esc(catActual.nombre)}: ${clp(vhActual)}. <button type="button" id="l-actualizar">Usar valor actual</button></div>` : ''}
       ${ro ? '' : `<div class="btn-row">
         ${nueva ? '' : '<button class="btn btn-danger" id="l-del">Eliminar</button>'}
@@ -567,7 +608,9 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
   }
 
   function preview() {
-    $('#l-calc').textContent = compra
+    $('#l-calc').textContent = porCant()
+      ? `${dec(l.cantidad)} ${l.unidad || ''} × ${Calc.vacio(l.precioUnit) ? '—' : clp(l.precioUnit)}`
+      : compra
       ? `${dec(l.cantidad)} × ${clp(l.costoUnit)}`
       : `${dec(l.horas)} h × ${Calc.vacio(l.hh) ? '—' : clp(Calc.montoLinea(Object.assign({}, l, { horas: 1 })))}`;
     $('#l-monto').textContent = clp(Calc.montoLinea(l));
@@ -583,12 +626,41 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
     m.querySelectorAll('#l-cats .cat-btn').forEach(b => b.onclick = () => {
       guardarDesc();
       const c = S.categorias.find(x => x.id === b.dataset.id);
-      l.categoriaId = c.id; l.categoria = c.nombre; l.hh = Calc.num(c.valorHora); l.factor = 1;
+      l.categoriaId = c.id; l.categoria = c.nombre;
+      if (!porCant()) { l.hh = Calc.num(c.valorHora); l.factor = 1; }
+      montar();
+    });
+    m.querySelectorAll('#l-modo button').forEach(b => b.onclick = () => {
+      guardarDesc(); l.modo = b.dataset.v;
+      if (porCant() && Calc.vacio(l.cantidad)) l.cantidad = 1;
       montar();
     });
     $('#l-fecha').addEventListener('change', e => { l.fecha = e.target.value; });
     $('#l-incl').addEventListener('change', e => { l.incluida = e.target.checked; });
-    if (!compra) {
+    if (porCant()) {
+      $('#l-tarifa').addEventListener('change', e => {
+        guardarDesc();
+        const t = S.tarifario.find(x => x.id === e.target.value);
+        if (t) {
+          const c = S.categorias.find(x => x.id === t.categoriaId);
+          Object.assign(l, { tarifaId: t.id, unidad: t.unidad, precioUnit: Calc.num(t.precio) });
+          if (c) { l.categoriaId = c.id; l.categoria = c.nombre; }
+          if (!String(l.descripcion || '').trim()) l.descripcion = t.nombre;
+        } else l.tarifaId = '';
+        montar();
+      });
+      $('#l-cant').addEventListener('input', e => { l.cantidad = Calc.num(e.target.value); preview(); });
+      $('#l-unidad').addEventListener('change', e => { l.unidad = e.target.value; preview(); const lb = m.querySelector('label[for="l-precio"]'); if (lb) lb.textContent = 'Precio por ' + (l.unidad || 'unidad'); });
+      const pr = $('#l-precio');
+      pr.addEventListener('input', () => {
+        const d = soloDigitos(pr.value);
+        l.precioUnit = d === '' ? '' : Number(d);
+        pr.value = d === '' ? '' : Number(d).toLocaleString('es-CL');
+        preview();
+      });
+      const ap = $('#l-act-precio');
+      if (ap) ap.onclick = () => { guardarDesc(); const t = S.tarifario.find(x => x.id === l.tarifaId); l.precioUnit = Calc.num(t.precio); montar(); };
+    } else if (!compra) {
       const hi = $('#l-horas');
       const setH = h => { l.horas = Math.max(1, Math.round(h * 2) / 2); hi.value = dec(l.horas); preview(); };
       $('#h-menos').onclick = () => setH(Calc.num(l.horas) - 0.5);
@@ -618,9 +690,11 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
     $('#l-ok').onclick = () => {
       guardarDesc();
       if (compra && l.costoUnit === '') l.costoUnit = 0;
-      if (!compra && Calc.vacio(l.hh)) { const c = S.categorias.find(x => x.id === l.categoriaId); if (c) l.hh = Calc.num(c.valorHora); }
+      if (porCant()) { l.horas = ''; l.hh = ''; l.factor = ''; }
+      else if (l.tipo === 'Mano de obra') { l.modo = 'Horas'; l.unidad = ''; l.precioUnit = ''; l.tarifaId = ''; }
+      if (!compra && !porCant() && Calc.vacio(l.hh)) { const c = S.categorias.find(x => x.id === l.categoriaId); if (c) l.hh = Calc.num(c.valorHora); }
       try {
-        Calc.normalizarLinea(l, nueva ? ED.lineas.length : i, S.config, S.categorias, S.tiposItem);
+        Calc.normalizarLinea(l, nueva ? ED.lineas.length : i, S.config, S.categorias, S.tiposItem, S.tarifario);
       } catch (e) { const msg = e.message.replace(/^La línea \d+:? ?/, ''); toast(msg.charAt(0).toUpperCase() + msg.slice(1), 'err'); return; }
       l.monto = Calc.montoLinea(l);
       if (nueva) ED.lineas.push(l); else ED.lineas[i] = l;
@@ -975,7 +1049,8 @@ function modalCotizacion(ots, numeroBase) {
     <label class="check"><input type="checkbox" id="c-dc" ${cfg.COT_DETALLE_COMPRAS === 'SI' ? 'checked' : ''} ${hayCompras ? '' : 'disabled'}> Mostrar gestión de compras</label>
     <div class="sub-opts" id="c-dc-sub">${tiposPres.map(([id, nom]) => `<label class="check"><input type="checkbox" data-tipo="${esc(id)}" checked> Listar ${esc(nom)}</label>`).join('') || '<p class="hint">Solo hay tiempo de gestión.</p>'}</div>
     <label class="check"><input type="checkbox" id="c-dm" ${cfg.COT_DETALLE_MO === 'SI' ? 'checked' : ''} ${hayMO ? '' : 'disabled'}> Mostrar mano de obra</label>
-    <div class="sub-opts" id="c-dm-sub"><label class="check"><input type="checkbox" id="c-agr" ${cfg.COT_MO_AGRUPADA === 'SI' ? 'checked' : ''}> Agrupada por categoría (en vez de cada proceso)</label></div>
+    <div class="sub-opts" id="c-dm-sub"><label class="check"><input type="checkbox" id="c-agr" ${cfg.COT_MO_AGRUPADA === 'SI' ? 'checked' : ''}> Agrupada por categoría (en vez de cada proceso)</label>
+      ${incl.some(l => Calc.esCantidad(l)) ? `<label class="check"><input type="checkbox" id="c-cant" ${cfg.COT_MOSTRAR_CANTIDAD !== 'NO' ? 'checked' : ''}> Mostrar cantidades (ej: 81,6 m²)</label>` : ''}</div>
     <hr class="sep">
     <label class="check"><input type="checkbox" id="c-fot" ${!multiple && nFotos ? 'checked' : ''} ${nFotos ? '' : 'disabled'}> Incluir fotos ${nFotos ? `(${nFotos})` : '(no hay fotos marcadas)'}</label>
     <label class="check"><input type="checkbox" id="c-cond" ${hayCond && cfg.COT_INCLUIR_CONDICIONES === 'SI' ? 'checked' : ''} ${hayCond ? '' : 'disabled'}> Incluir condiciones</label>
@@ -992,6 +1067,7 @@ function modalCotizacion(ots, numeroBase) {
     const opciones = {
       detalleCompras: $('#c-dc').checked && hayCompras, detalleMO: $('#c-dm').checked && hayMO,
       agruparMO: $('#c-agr').checked, incluirCondiciones: $('#c-cond').checked, incluirFotos: $('#c-fot').checked,
+      mostrarCantidad: $('#c-cant') ? $('#c-cant').checked : false,
       tiposOcultos: [...m.querySelectorAll('[data-tipo]')].filter(cb => !cb.checked).map(cb => cb.dataset.tipo)
     };
     const atencionId = $('#c-at').value;
@@ -1270,6 +1346,23 @@ function renderConfig(app) {
     </div>
 
     <div class="card">
+      <h2>📐 Tarifario <span class="extra">trabajos por cantidad</span></h2>
+      <p class="hint" style="margin:-6px 0 10px">Servicios con precio fijo por unidad (m², m lineal…). Al anotar mano de obra "por cantidad" eliges el servicio y solo pones la cantidad.</p>
+      <div id="tarifas">${S.tarifario.slice().sort((a, b) => Calc.num(a.orden) - Calc.num(b.orden)).map(filaTarifa).join('') || '<p class="hint" id="tar-vacio">Aún no hay servicios en el tarifario.</p>'}</div>
+      <button class="btn btn-sec btn-sm" id="tar-add">＋ Agregar servicio</button>
+      <button class="btn btn-primary btn-full" style="margin-top:14px" id="tar-ok">Guardar tarifario</button>
+    </div>
+
+    <div class="card">
+      <h2>📏 Unidades</h2>
+      <div class="cat-head" style="grid-template-columns:1fr 40px"><span>Unidad</span><span>Activa</span></div>
+      <div id="unis">${S.unidades.slice().sort((a, b) => Calc.num(a.orden) - Calc.num(b.orden)).map(u => `
+        <div class="tipo-row" data-id="${esc(u.id)}"><input class="u-nom" value="${esc(u.nombre)}"><input class="u-act" type="checkbox" ${u.activo !== false ? 'checked' : ''}></div>`).join('')}</div>
+      <button class="btn btn-sec btn-sm" id="uni-add">＋ Agregar unidad</button>
+      <button class="btn btn-primary btn-full" style="margin-top:14px" id="uni-ok">Guardar unidades</button>
+    </div>
+
+    <div class="card">
       <h2>🏠 Datos de la empresa</h2>
       <p class="hint" style="margin:-6px 0 4px">Aparecerán en las cotizaciones.</p>
       ${emp.map(([k, t]) => `<label for="e-${k}">${t}</label><input id="e-${k}" value="${esc(cfg[k])}">`).join('')}
@@ -1285,6 +1378,7 @@ function renderConfig(app) {
       <label class="check"><input type="checkbox" id="q-dc" ${cfg.COT_DETALLE_COMPRAS === 'SI' ? 'checked' : ''}> Mostrar gestión de compras</label>
       <label class="check"><input type="checkbox" id="q-dm" ${cfg.COT_DETALLE_MO === 'SI' ? 'checked' : ''}> Mostrar mano de obra</label>
       <label class="check"><input type="checkbox" id="q-agr" ${cfg.COT_MO_AGRUPADA === 'SI' ? 'checked' : ''}> Mano de obra agrupada por categoría</label>
+      <label class="check"><input type="checkbox" id="q-cant" ${cfg.COT_MOSTRAR_CANTIDAD !== 'NO' ? 'checked' : ''}> Mostrar cantidades (ej: 81,6 m²)</label>
       <button class="btn btn-primary btn-full" style="margin-top:14px" id="q-ok">Guardar</button>
     </div>` : ''}
 
@@ -1315,7 +1409,7 @@ function renderConfig(app) {
   const off = $('#k-demo-off');
   if (off) off.onclick = async () => {
     DEMO = false; LS.set('osc_demo', '0');
-    Object.assign(S, { config: {}, categorias: [], tiposItem: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [], ordenesCompra: [], facturas: [] });
+    Object.assign(S, { config: {}, categorias: [], tiposItem: [], unidades: [], tarifario: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [], ordenesCompra: [], facturas: [] });
     Object.keys(FOTOS).forEach(k => delete FOTOS[k]);
     SYNCED = false; cargarCache(); actualizarEstado(); render();
     if (API_URL && TOKEN) sync(true);
@@ -1338,7 +1432,8 @@ function renderConfig(app) {
     COT_INCLUIR_CONDICIONES: $('#q-inc').checked ? 'SI' : 'NO',
     COT_MO_AGRUPADA: $('#q-agr').checked ? 'SI' : 'NO',
     COT_DETALLE_COMPRAS: $('#q-dc').checked ? 'SI' : 'NO',
-    COT_DETALLE_MO: $('#q-dm').checked ? 'SI' : 'NO'
+    COT_DETALLE_MO: $('#q-dm').checked ? 'SI' : 'NO',
+    COT_MOSTRAR_CANTIDAD: $('#q-cant').checked ? 'SI' : 'NO'
   });
   $('#e-ok').onclick = async () => {
     const values = {}; emp.forEach(([k]) => { values[k] = $('#e-' + k).value.trim(); });
@@ -1370,6 +1465,58 @@ function renderConfig(app) {
       guardarCache(); toast('✓ Categorías guardadas', 'ok'); renderConfig(app);
     } catch (e) { toast('No se guardó: ' + e.message, 'err'); btn.disabled = false; }
   };
+  $('#tar-add').onclick = () => {
+    const v = $('#tar-vacio'); if (v) v.remove();
+    const div = document.createElement('div'); div.innerHTML = filaTarifa({ id: '', nombre: '', categoriaId: '', unidad: '', precio: '', activo: true });
+    const el = div.firstElementChild; $('#tarifas').appendChild(el); el.querySelector('.tf-nom').focus();
+  };
+  $('#tarifas').addEventListener('input', e => {
+    if (!e.target.classList.contains('tf-pre')) return;
+    const d = soloDigitos(e.target.value); e.target.value = d ? Number(d).toLocaleString('es-CL') : '';
+  });
+  $('#tar-ok').onclick = async () => {
+    const cambios = [];
+    for (const [idx, f] of [...document.querySelectorAll('#tarifas .tar-row')].entries()) {
+      const item = { id: f.dataset.id, nombre: f.querySelector('.tf-nom').value.trim(), categoriaId: f.querySelector('.tf-cat').value,
+        unidad: f.querySelector('.tf-uni').value, precio: Number(soloDigitos(f.querySelector('.tf-pre').value) || 0), activo: f.querySelector('.tf-act').checked, orden: idx + 1 };
+      if (!item.id && !item.nombre) continue;
+      if (!item.nombre) { toast('Hay un servicio sin nombre', 'err'); return; }
+      if (!item.categoriaId || !item.unidad || !(item.precio > 0)) { toast('Completa categoría, unidad y precio de "' + item.nombre + '"', 'err'); return; }
+      const prev = S.tarifario.find(t => t.id === item.id);
+      if (!prev || ['nombre', 'categoriaId', 'unidad'].some(k => String(prev[k]) !== String(item[k])) || Calc.num(prev.precio) !== item.precio || (prev.activo !== false) !== item.activo || Calc.num(prev.orden) !== item.orden) cambios.push(item);
+    }
+    if (!cambios.length) { toast('No hay cambios', 'ok', 1200); return; }
+    const btn = $('#tar-ok'); btn.disabled = true; toast('Guardando tarifario…');
+    try {
+      const r = await api('saveTarifario', { items: cambios });
+      const ids = new Set(r.items.map(x => x.id));
+      S.tarifario = S.tarifario.filter(t => !ids.has(t.id)).concat(r.items);
+      guardarCache(); toast('✓ Tarifario guardado', 'ok'); renderConfig(app);
+    } catch (e) { toast('No se guardó: ' + e.message, 'err'); btn.disabled = false; }
+  };
+  $('#uni-add').onclick = () => {
+    const div = document.createElement('div'); div.className = 'tipo-row'; div.dataset.id = '';
+    div.innerHTML = '<input class="u-nom" placeholder="Ej: m³"><input class="u-act" type="checkbox" checked>';
+    $('#unis').appendChild(div); div.querySelector('.u-nom').focus();
+  };
+  $('#uni-ok').onclick = async () => {
+    const cambios = [];
+    for (const [idx, f] of [...document.querySelectorAll('#unis .tipo-row')].entries()) {
+      const item = { id: f.dataset.id, nombre: f.querySelector('.u-nom').value.trim(), activo: f.querySelector('.u-act').checked, orden: idx + 1 };
+      if (!item.id && !item.nombre) continue;
+      if (!item.nombre) { toast('Hay una unidad sin nombre', 'err'); return; }
+      const prev = S.unidades.find(u => u.id === item.id);
+      if (!prev || prev.nombre !== item.nombre || (prev.activo !== false) !== item.activo || Calc.num(prev.orden) !== item.orden) cambios.push(item);
+    }
+    if (!cambios.length) { toast('No hay cambios', 'ok', 1200); return; }
+    const btn = $('#uni-ok'); btn.disabled = true; toast('Guardando unidades…');
+    try {
+      const r = await api('saveUnidades', { items: cambios });
+      const ids = new Set(r.items.map(x => x.id));
+      S.unidades = S.unidades.filter(u => !ids.has(u.id)).concat(r.items);
+      guardarCache(); toast('✓ Unidades guardadas', 'ok'); renderConfig(app);
+    } catch (e) { toast('No se guardó: ' + e.message, 'err'); btn.disabled = false; }
+  };
   $('#tipo-add').onclick = () => {
     const div = document.createElement('div');
     div.className = 'tipo-row'; div.dataset.id = '';
@@ -1394,6 +1541,21 @@ function renderConfig(app) {
       guardarCache(); toast('✓ Tipos guardados', 'ok'); renderConfig(app);
     } catch (e) { toast('No se guardó: ' + e.message, 'err'); btn.disabled = false; }
   };
+}
+
+function filaTarifa(t) {
+  const oficios = catsActivas().filter(c => c.uso !== 'Gestión');
+  const unis = S.unidades.filter(u => u.activo !== false || u.nombre === t.unidad).map(u => u.nombre);
+  if (t.unidad && !unis.includes(t.unidad)) unis.push(t.unidad);
+  return `<div class="tar-row ${t.activo === false ? 'inactivo' : ''}" data-id="${esc(t.id)}">
+    <input class="tf-nom" value="${esc(t.nombre)}" placeholder="Servicio (ej: Instalación de piso flotante)">
+    <div class="tar-sub">
+      <select class="tf-cat"><option value="">Categoría…</option>${oficios.map(c => `<option value="${esc(c.id)}" ${c.id === t.categoriaId ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('')}</select>
+      <select class="tf-uni"><option value="">Unidad…</option>${unis.map(u => `<option ${u === t.unidad ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select>
+      <input class="tf-pre" inputmode="numeric" placeholder="$ precio" value="${Calc.num(t.precio) ? Calc.num(t.precio).toLocaleString('es-CL') : ''}">
+      <label class="tf-actl"><input class="tf-act" type="checkbox" ${t.activo !== false ? 'checked' : ''}> activo</label>
+    </div>
+  </div>`;
 }
 
 async function guardarConfig(values) {
