@@ -3,7 +3,7 @@
 App web para registrar las **órdenes de trabajo (OT)** de Mantenciones OSC desde el celular.
 La fuente de verdad es una **planilla de Google Sheets** y el backend es **Apps Script**.
 
-**Versión 3.1.1 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
+**Versión 3.1.2 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
 
 **Incluye también (v3.0):** órdenes de compra, facturación con folio SII, registro de pagos y panel de ventas.
 
@@ -50,7 +50,8 @@ Cada línea guarda el valor hora vigente cuando se creó y cada OT guarda el % d
 - **Facturar:** Facturación → *Por facturar* → marcar una o varias OC del mismo cliente → *📋 Copiar datos* (texto para el portal del SII) → emitir la factura en el SII → *🧾 Registrar folio*. Las OT de esas OC quedan **facturadas y en solo lectura**.
 - **Pagos:** Facturación → *Facturas* → tocar una factura → fecha de pago y referencia → *Registrar pago*.
 - **OT cerradas:** una OT con OC asignada (o facturada) queda bloqueada: no se edita, no se le suben fotos y no se vuelve a cotizar. Se muestra como un informe de solo lectura con sus documentos (cotización, OC, factura y pago), compras, mano de obra y resumen. Su cotización también queda cerrada (sin nuevas versiones ni cambios de estado).
-- **Corregir errores:** una OC sin factura se puede quitar desde su detalle; una factura pendiente se puede quitar del registro (no la anula en el SII).
+- **Corregir errores:** el orden es factura → OC. Una factura pagada se vuelve a *pendiente* con *↺ Marcar pendiente*; una factura pendiente se puede *Quitar* del registro (no la anula en el SII); y una OC sin factura se quita desde su detalle (*Quitar OC*). La OC se abre desde la cotización, desde Facturación → Por facturar o desde el informe de la OT (*Ver OC*). Al quitar la OC, las OT vuelven a ser editables y la cotización vuelve a Vigente.
+- **Buscar:** en OT y Cotizaciones, toca la 🔍 junto al título; la ✕ cierra y limpia la búsqueda.
 - **Panel (Resumen):** por semana, mes, mes anterior, año o fechas a elección, y por cliente: facturado (neto, IVA, total), IVA del periodo (débito), cobrado, por cobrar, OT del periodo, lo que va en camino (cotizado sin OC y con OC sin factura), gráfico de facturado por mes y por categoría, y un PDF de resumen.
   - *Facturado* se cuenta por la fecha de la factura; *OT del periodo*, por la fecha de la OT; *Cobrado*, por la fecha de pago.
   - *Por categoría* reparte el neto de las OT facturadas en sus categorías (cada oficio, gestión de compras, materiales y compras), con el recargo incluido.

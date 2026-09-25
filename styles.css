@@ -362,3 +362,9 @@ hr.sep { border: 0; border-top: 1px solid var(--linea); margin: 14px 0 0; }
 .inf-tab tr.tot td { border-bottom: 0; padding-top: 10px; }
 .inf-tab a { color: var(--terra-osc); font-weight: 700; }
 .inf-tab .hint { font-size: 12px; }
+
+/* Títulos de sección (v3.1.2) */
+.sec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 2px 2px 10px; }
+.sec-head h1 { margin: 0; font-size: 20px; font-weight: 800; color: var(--cafe); letter-spacing: -.2px; }
+.sec-head .lupa { background: var(--blanco); border: 1.5px solid var(--linea); border-radius: 10px; width: 40px; height: 40px; font-size: 17px; cursor: pointer; color: var(--cafe); flex: none; }
+.sec-head .lupa.on { background: var(--ambar-bg); border-color: var(--terra); }

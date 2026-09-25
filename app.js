@@ -16,9 +16,26 @@ let DEMO = LS.get('osc_demo') === '1';
 const S = { config: {}, categorias: [], tiposItem: [], unidades: [], tarifario: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [], ordenesCompra: [], facturas: [] };
 const FOTOS = {};   // nOT -> [{...foto, data}] (se cargan al abrir la OT)
 let SYNCED = false;
-const APP_VERSION = '3.1.1';
+const APP_VERSION = '3.1.2';
 const API_REQUERIDA = '3.1.1';
 /** OT cerrada: con OC asignada o facturada. Se muestra como informe de solo lectura. */
+const folioTxt = f => 'Folio Nº ' + esc(f);
+let BUSQ_ABIERTA = {};
+// Título de sección, con lupa opcional que despliega el buscador
+function tituloSeccion(titulo, b) {
+  if (!b) return `<div class="sec-head"><h1>${titulo}</h1></div>`;
+  const abierta = BUSQ_ABIERTA[b.key] || !!b.value;
+  return `<div class="sec-head"><h1>${titulo}</h1>
+      <button type="button" class="lupa ${abierta ? 'on' : ''}" data-lupa="${b.key}" aria-label="Buscar">${abierta ? '✕' : '🔍'}</button></div>
+    ${abierta ? `<input class="search" type="search" id="${b.id}" placeholder="${b.placeholder}" value="${esc(b.value)}">` : ''}`;
+}
+function activarLupa(app, key, limpiar, rerender, inputId) {
+  const btn = app.querySelector('[data-lupa="' + key + '"]'); if (!btn) return;
+  btn.onclick = () => {
+    if (BUSQ_ABIERTA[key] || app.querySelector('#' + inputId)) { BUSQ_ABIERTA[key] = false; limpiar(); rerender(); }
+    else { BUSQ_ABIERTA[key] = true; rerender(); const i = app.querySelector('#' + inputId); if (i) i.focus(); }
+  };
+}
 const otCerrada = o => !!(o && (String(o.folioSII || '').trim() || String(o.nOC || '').trim()));  // versión mínima del Apps Script que necesita esta app
 const cmpVer = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
 let API_VERSION = '';
@@ -260,7 +277,7 @@ function renderOTs(app) {
   app.innerHTML = `
     ${noConectado()}
     ${sinHH ? `<div class="warn-banner">⚠ Hay categorías sin <b>valor hora</b>. Sus líneas salen en $0. <a href="#/config">Ir a Config →</a></div>` : ''}
-    <input class="search" type="search" id="busq" placeholder="Buscar OT, título, edificio, solicitante…" value="${esc(BUSQ)}">
+    ${tituloSeccion('Órdenes de trabajo (OT)', { key: 'ots', id: 'busq', value: BUSQ, placeholder: 'Buscar OT, título, edificio, solicitante…' })}
     <div class="chips">${filtros.map(([k, t]) => `<button class="chip ${FILTRO === k ? 'on' : ''}" data-f="${k}">${t}</button>`).join('')}</div>
     ${SEL ? `<div class="sel-banner">Toca las OT que quieres cotizar juntas (mismo cliente).</div>`
           : (S.ots.length > 1 ? `<button class="btn btn-sec btn-sm" id="btn-sel" style="margin-bottom:10px">☑ Seleccionar para cotizar juntas</button>` : '')}
@@ -269,7 +286,8 @@ function renderOTs(app) {
         <button class="btn btn-sec" id="sel-cancel">Cancelar</button>
         <button class="btn btn-primary" id="sel-ok" ${SEL.size ? '' : 'disabled'}>📄 Cotizar juntas (${SEL.size})</button>
       </div></div>` : `<button class="fab" id="btn-nueva">＋ Nueva OT</button>`}`;
-  $('#busq').addEventListener('input', e => { BUSQ = e.target.value; const pos = e.target.selectionStart; renderOTs(app); const b = $('#busq'); b.focus(); b.setSelectionRange(pos, pos); });
+  activarLupa(app, 'ots', () => { BUSQ = ''; }, () => renderOTs(app), 'busq');
+  if ($('#busq')) $('#busq').addEventListener('input', e => { BUSQ = e.target.value; BUSQ_ABIERTA.ots = true; const pos = e.target.selectionStart; renderOTs(app); const b = $('#busq'); b.focus(); b.setSelectionRange(pos, pos); });
   app.querySelectorAll('.chip').forEach(c => c.onclick = () => { FILTRO = c.dataset.f; LS.set('osc_filtro', FILTRO); renderOTs(app); });
   if (!SEL) {
     $('#btn-nueva').onclick = () => { location.hash = '#/ot/nueva'; };
@@ -305,7 +323,7 @@ function itemOT(o) {
       <div class="badges">
         <span class="badge b-${slug(o.estado)}">${esc(o.estado)}</span>
         ${o.nOC ? `<span class="badge b-oc">OC ${esc(o.nOC)}</span>` : ''}
-        ${o.folioSII ? `<span class="badge b-folio">Folio ${esc(o.folioSII)}</span>` : ''}
+        ${o.folioSII ? `<span class="badge b-folio">${folioTxt(o.folioSII)}</span>` : ''}
       </div>
       <div class="ot-total">${clp(o.total)}<div class="hint" style="text-align:right;margin:0">${nLin} línea${nLin === 1 ? '' : 's'}</div></div>
     </div>
@@ -353,7 +371,7 @@ function renderEditor(param) {
       <h2>${o.nOT ? otNum(o.nOT) : 'Nueva OT'}</h2>
       <span class="dirty ${ED.dirty ? '' : 'hidden'}" id="ed-dirty">Sin guardar</span>
     </div>
-    ${ro ? `<div class="readonly-banner">🧾 Facturada con folio <b>${esc(o.folioSII)}</b>. Solo lectura.</div>` : ''}
+    ${ro ? `<div class="readonly-banner">🧾 Facturada con <b>${folioTxt(o.folioSII)}</b>. Solo lectura.</div>` : ''}
 
     <div class="card">
       <h2>👤 Cliente</h2>
@@ -405,7 +423,7 @@ function renderEditor(param) {
     <div class="card">
       <label for="f-notas">Notas internas</label>
       <textarea id="f-notas" placeholder="Solo para ustedes, no sale en la cotización" ${ro ? 'readonly' : ''}>${esc(o.notas)}</textarea>
-      ${o.nOC || o.folioSII ? `<p class="hint" style="margin-top:10px">${o.nOC ? 'OC: <b>' + esc(o.nOC) + '</b>' : ''} ${o.folioSII ? ' · Folio SII: <b>' + esc(o.folioSII) + '</b>' : ''}</p>` : ''}
+      ${o.nOC || o.folioSII ? `<p class="hint" style="margin-top:10px">${o.nOC ? 'OC: <b>' + esc(o.nOC) + '</b>' : ''} ${o.folioSII ? ' · <b>' + folioTxt(o.folioSII) + '</b>' : ''}</p>` : ''}
     </div>
 
     <div class="ed-footer"><div class="inner">
@@ -935,7 +953,7 @@ function renderCots(app) {
   if (q) lista = lista.filter(g => norm([g.clave, ...g.ots.map(n => { const o = S.ots.find(x => Number(x.nOT) === n); return otNum(n) + ' ' + (o ? o.titulo + ' ' + o.ubicacion : ''); })].join(' ')).includes(q));
   app.innerHTML = `
     ${noConectado()}
-    <input class="search" type="search" id="busq-cot" placeholder="Buscar COT, OT o título…" value="${esc(BUSQ_COT)}">
+    ${tituloSeccion('Cotizaciones', { key: 'cots', id: 'busq-cot', value: BUSQ_COT, placeholder: 'Buscar COT, OT o título…' })}
     <div class="chips">${filtros.map(([k, t]) => `<button class="chip ${FILTRO_COT === k ? 'on' : ''}" data-f="${k}">${t}</button>`).join('')}</div>
     <div style="padding-bottom:64px">${lista.length ? lista.map(g => {
       const c = g.ultima;
@@ -948,7 +966,8 @@ function renderCots(app) {
       </a>`;
     }).join('') : `<div class="empty"><span class="big">📄</span>${S.cotizaciones.length ? 'No hay cotizaciones con este filtro.' : 'Aún no hay cotizaciones.<br>Se generan desde cada OT, o varias juntas con el botón de abajo.'}</div>`}</div>
     <button class="fab" id="btn-cot-multi">＋ Cotizar varias OT</button>`;
-  $('#busq-cot').addEventListener('input', e => { BUSQ_COT = e.target.value; const pos = e.target.selectionStart; renderCots(app); const b = $('#busq-cot'); b.focus(); b.setSelectionRange(pos, pos); });
+  activarLupa(app, 'cots', () => { BUSQ_COT = ''; }, () => renderCots(app), 'busq-cot');
+  if ($('#busq-cot')) $('#busq-cot').addEventListener('input', e => { BUSQ_COT = e.target.value; BUSQ_ABIERTA.cots = true; const pos = e.target.selectionStart; renderCots(app); const b = $('#busq-cot'); b.focus(); b.setSelectionRange(pos, pos); });
   app.querySelectorAll('.chip').forEach(c => c.onclick = () => { FILTRO_COT = c.dataset.f; LS.set('osc_filtro_cot', FILTRO_COT); renderCots(app); });
   $('#btn-cot-multi').onclick = () => { SEL = new Set(); location.hash = '#/ots'; };
 }
@@ -1225,8 +1244,8 @@ function renderClientes(app) {
   const lista = S.clientes.slice().sort((a, b) => (b.activo !== false) - (a.activo !== false) || String(a.razonSocial).localeCompare(b.razonSocial));
   app.innerHTML = `
     ${noConectado()}
+    ${tituloSeccion('Clientes')}
     <div class="card">
-      <h2>👥 Clientes</h2>
       ${lista.length ? lista.map(c => {
         const nOT = S.ots.filter(o => o.clienteId === c.id && o.estado !== 'Anulada').length;
         const nSol = S.solicitantes.filter(s => s.clienteId === c.id && s.activo !== false).length;
@@ -1303,6 +1322,7 @@ function renderConfig(app) {
   const emp = [['EMPRESA_NOMBRE', 'Nombre de fantasía'], ['EMPRESA_RAZON_SOCIAL', 'Razón social'], ['EMPRESA_RUT', 'RUT'], ['EMPRESA_GIRO', 'Giro'], ['EMPRESA_DIRECCION', 'Dirección'], ['EMPRESA_TELEFONO', 'Teléfono'], ['EMPRESA_CORREO', 'Correo'], ['EMPRESA_FIRMA', 'Nombre para la firma']];
 
   app.innerHTML = `
+    ${tituloSeccion('Configuración')}
     <div class="card">
       <h2>🔌 Conexión con la planilla</h2>
       ${DEMO ? `<div class="warn-banner">Estás en <b>modo demo</b>: los datos son de ejemplo y se guardan solo en este teléfono. Nada llega a Google Sheets.</div>` : ''}

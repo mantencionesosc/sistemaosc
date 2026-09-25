@@ -60,7 +60,7 @@ function bloqueOC(c) {
   if (ocs.length) {
     return `<div class="card"><h2>🧾 Orden de compra</h2>
       ${ocs.map(o => `<div class="list-item" data-oc="${esc(o.nOC)}"><div class="li-body">
-        <div class="li-tit">OC ${esc(o.nOC)} ${o.folio ? `<span class="badge b-folio">Folio ${esc(o.folio)}</span>` : '<span class="badge b-pendiente">Por facturar</span>'}</div>
+        <div class="li-tit">OC ${esc(o.nOC)} ${o.folio ? `<span class="badge b-folio">${folioTxt(o.folio)}</span>` : '<span class="badge b-pendiente">Por facturar</span>'}</div>
         <div class="li-sub">${fechaCorta(o.fecha)} · Total ${clp(o.monto)}</div></div><span class="chev">›</span></div>`).join('')}
     </div>`;
   }
@@ -149,7 +149,7 @@ function modalOC(nOC) {
   const ots = listaCSV(o.ots).map(n => S.ots.find(x => String(x.nOT) === n)).filter(Boolean);
   const m = abrirModal(`
     <h3>OC ${esc(o.nOC)}<button class="x" data-cerrar>✕</button></h3>
-    <p style="margin:0 0 6px">${o.folio ? `<span class="badge b-folio">Facturada · folio ${esc(o.folio)}</span>` : '<span class="badge b-pendiente">Por facturar</span>'}</p>
+    <p style="margin:0 0 6px">${o.folio ? `<span class="badge b-folio">Facturada · ${folioTxt(o.folio)}</span>` : '<span class="badge b-pendiente">Por facturar</span>'}</p>
     <p class="hint">${esc(nombreCliente(o.clienteId))} · ${fechaCorta(o.fecha)}</p>
     <div class="res-row"><span>Neto</span><span>${clp(o.neto)}</span></div>
     <div class="res-row"><span>IVA</span><span>${clp(o.iva)}</span></div>
@@ -159,7 +159,7 @@ function modalOC(nOC) {
     ${o.notas ? `<p class="hint">📝 ${esc(o.notas)}</p>` : ''}
     <div class="btn-row" style="flex-direction:column">
       ${o.archivoUrl ? `<a class="btn btn-sec" href="${esc(o.archivoUrl)}" target="_blank" rel="noopener">📎 Ver documento de la OC</a>` : ''}
-      ${o.folio ? '' : '<button class="btn btn-danger" id="moc-del">Quitar OC</button>'}
+      ${o.folio ? `<p class="hint" style="margin:0">Para quitar esta OC, primero quita la factura ${folioTxt(o.folio)} (Facturación → Facturas). Si está pagada, márcala antes como pendiente.</p>` : '<button class="btn btn-danger" id="moc-del">Quitar OC</button>'}
     </div>`);
   const del = m.querySelector('#moc-del');
   if (del) del.onclick = async () => {
@@ -180,6 +180,7 @@ function renderFact(app) {
   const pendientes = S.facturas.filter(f => f.estadoPago !== 'Pagada');
   const tabs = [['resumen', '📊 Resumen'], ['porfacturar', `Por facturar${porFacturar.length ? ' (' + porFacturar.length + ')' : ''}`], ['facturas', `Facturas${pendientes.length ? ' (' + pendientes.length + ')' : ''}`]];
   app.innerHTML = `${noConectado()}
+    ${tituloSeccion('Facturación')}
     <div class="seg" id="ft-tabs" style="margin-bottom:12px">${tabs.map(([k, t]) => `<button type="button" data-v="${k}" class="${FACT_TAB === k ? 'on' : ''}">${t}</button>`).join('')}</div>
     <div id="ft-body"></div>`;
   app.querySelectorAll('#ft-tabs button').forEach(b => b.onclick = () => { FACT_TAB = b.dataset.v; LS.set('osc_fact_tab', FACT_TAB); SEL_OC = null; renderFact(app); });
@@ -279,7 +280,7 @@ function modalRegistrarFolio(ocs, tot) {
     if (!folio) { toast('Escribe el folio SII', 'err'); return; }
     const montos = leer();
     if (!(montos.total > 0)) { toast('Falta el total', 'err'); return; }
-    if (!confirm(`¿Registrar la factura folio ${folio} por ${clp(montos.total)}?`)) return;
+    if (!confirm(`¿Registrar la factura Folio Nº ${folio} por ${clp(montos.total)}?`)) return;
     m.querySelectorAll('button').forEach(b => b.disabled = true);
     toast('Registrando…');
     try {
@@ -290,7 +291,7 @@ function modalRegistrarFolio(ocs, tot) {
       actualizarOTsEnEstado(r.ots);
       guardarCache();
       SEL_OC = null; FACT_TAB = 'facturas';
-      toast('✓ Factura ' + folio + ' registrada', 'ok'); cerrarModal(); render();
+      toast('✓ Factura Folio Nº ' + folio + ' registrada', 'ok'); cerrarModal(); render();
     } catch (e) {
       toast('No se registró: ' + e.message, 'err');
       m.querySelectorAll('button').forEach(b => b.disabled = false);
@@ -308,7 +309,7 @@ function renderFacturas(body) {
     <div class="chips">${[['pendientes', 'Por cobrar'], ['pagadas', 'Pagadas'], ['todas', 'Todas']].map(([k, t]) => `<button class="chip ${FILTRO_FAC === k ? 'on' : ''}" data-ff="${k}">${t}</button>`).join('')}</div>
     ${pend.length ? `<div class="warn-banner" style="background:var(--azul-bg);color:var(--azul)">Por cobrar: <b>${clp(sumar(pend, 'total'))}</b> en ${pend.length} factura${pend.length === 1 ? '' : 's'}</div>` : ''}
     ${fs.length ? fs.map(f => `<div class="ot-item e-${f.estadoPago === 'Pagada' ? 'terminada' : 'pendiente'}" data-fac="${esc(f.folio)}" style="cursor:pointer">
-        <div class="ot-top"><span class="ot-num">Folio ${esc(f.folio)}</span><span>${fechaCorta(f.fecha)}</span></div>
+        <div class="ot-top"><span class="ot-num">${folioTxt(f.folio)}</span><span>${fechaCorta(f.fecha)}</span></div>
         <div class="ot-meta" style="margin-top:4px">${esc(nombreCliente(f.clienteId))} · OC ${esc(listaCSV(f.nOC).join(', '))} · ${listaCSV(f.ots).length} OT</div>
         <div class="ot-bottom"><div class="badges">${f.estadoPago === 'Pagada' ? `<span class="badge b-terminada">Pagada ${fechaCorta(f.fechaPago)}</span>` : '<span class="badge b-pendiente">Pendiente de pago</span>'}</div>
           <div class="ot-total">${clp(f.total)}<div class="hint" style="text-align:right;margin:0">IVA ${clp(f.iva)}</div></div></div>
@@ -323,7 +324,7 @@ function modalFactura(folio) {
   const pagada = f.estadoPago === 'Pagada';
   const ots = listaCSV(f.ots).map(n => S.ots.find(x => String(x.nOT) === n)).filter(Boolean);
   const m = abrirModal(`
-    <h3>Factura folio ${esc(f.folio)}<button class="x" data-cerrar>✕</button></h3>
+    <h3>Factura ${folioTxt(f.folio)}<button class="x" data-cerrar>✕</button></h3>
     <p style="margin:0 0 6px">${pagada ? `<span class="badge b-terminada">Pagada el ${fechaCorta(f.fechaPago)}</span>` : '<span class="badge b-pendiente">Pendiente de pago</span>'}</p>
     <p class="hint">${esc(nombreCliente(f.clienteId))} · ${fechaCorta(f.fecha)} · OC ${esc(listaCSV(f.nOC).join(', '))}</p>
     <div class="res-row"><span>Neto</span><span>${clp(f.neto)}</span></div>
@@ -582,9 +583,9 @@ function renderInformeOT(app, o, lineas) {
         ${cotsVista.map(c => `<tr><td><b>Cotización</b><br><span class="hint">${fechaCorta(c.fecha)}</span></td><td>${esc(etiquetaCot(c))}</td>
           <td class="num">${c.pdfUrl ? `<a href="${esc(c.pdfUrl)}" target="_blank" rel="noopener">PDF</a>` : `<a href="#/cot/${encodeURIComponent(claveCot(c))}">Ver</a>`}</td></tr>`).join('')}
         ${ocs.map(x => `<tr><td><b>Orden de compra</b><br><span class="hint">${fechaCorta(x.fecha)} · ${clp(x.monto)}</span></td><td>N° ${esc(x.nOC)}</td>
-          <td class="num">${x.archivoUrl ? `<a href="${esc(x.archivoUrl)}" target="_blank" rel="noopener">Documento</a>` : ''}</td></tr>`).join('')}
-        ${fac ? `<tr><td><b>Factura</b><br><span class="hint">${fechaCorta(fac.fecha)} · ${clp(fac.total)}</span></td><td>Folio ${esc(fac.folio)}</td>
-          <td class="num">${fac.estadoPago === 'Pagada' ? `✓ Pagada<br><span class="hint">${fechaCorta(fac.fechaPago)}</span>` : 'Pendiente'}</td></tr>` : ''}
+          <td class="num">${x.archivoUrl ? `<a href="${esc(x.archivoUrl)}" target="_blank" rel="noopener">Documento</a><br>` : ''}<a href="javascript:void 0" data-inf-oc="${esc(x.nOC)}">Ver OC</a></td></tr>`).join('')}
+        ${fac ? `<tr><td><b>Factura</b><br><span class="hint">${fechaCorta(fac.fecha)} · ${clp(fac.total)}</span></td><td>${folioTxt(fac.folio)}</td>
+          <td class="num">${fac.estadoPago === 'Pagada' ? `✓ Pagada<br><span class="hint">${fechaCorta(fac.fechaPago)}</span>` : 'Pendiente'}<br><a href="javascript:void 0" data-inf-fac="${esc(fac.folio)}">Ver factura</a></td></tr>` : ''}
       </table>
     </div>
 
@@ -622,6 +623,8 @@ function renderInformeOT(app, o, lineas) {
 
     ${o.notas ? `<div class="card inf"><h2>📝 Notas internas</h2><p class="inf-desc">${esc(o.notas)}</p></div>` : ''}
 
-    <p class="hint" style="text-align:center;margin:6px 0 70px">🔒 OT cerrada${fac ? ` · facturada con folio ${esc(fac.folio)}` : ` · OC ${esc(o.nOC)}`}. Para corregir algo, primero hay que quitar ${fac ? 'la factura y luego ' : ''}la OC.</p>`;
+    <p class="hint" style="text-align:center;margin:6px 0 70px">🔒 OT cerrada${fac ? ` · facturada con ${folioTxt(fac.folio)}` : ` · OC ${esc(o.nOC)}`}. Para corregir algo, primero hay que quitar ${fac ? 'la factura y luego ' : ''}la OC.</p>`;
+  app.querySelectorAll('[data-inf-oc]').forEach(el => el.onclick = () => modalOC(el.dataset.infOc));
+  app.querySelectorAll('[data-inf-fac]').forEach(el => el.onclick = () => modalFactura(el.dataset.infFac));
   renderFotosCard();
 }
