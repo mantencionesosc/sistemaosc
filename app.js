@@ -16,8 +16,10 @@ let DEMO = LS.get('osc_demo') === '1';
 const S = { config: {}, categorias: [], tiposItem: [], unidades: [], tarifario: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [], ordenesCompra: [], facturas: [] };
 const FOTOS = {};   // nOT -> [{...foto, data}] (se cargan al abrir la OT)
 let SYNCED = false;
-const APP_VERSION = '3.1';
-const API_REQUERIDA = '3.1';  // versión mínima del Apps Script que necesita esta app
+const APP_VERSION = '3.1.1';
+const API_REQUERIDA = '3.1.1';
+/** OT cerrada: con OC asignada o facturada. Se muestra como informe de solo lectura. */
+const otCerrada = o => !!(o && (String(o.folioSII || '').trim() || String(o.nOC || '').trim()));  // versión mínima del Apps Script que necesita esta app
 const cmpVer = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
 let API_VERSION = '';
 
@@ -279,6 +281,7 @@ function renderOTs(app) {
     const n = Number(el.dataset.n);
     const o = S.ots.find(x => Number(x.nOT) === n);
     if (o.estado === 'Anulada') { toast('Una OT anulada no se puede cotizar', 'err'); return; }
+    if (otCerrada(o)) { toast(otNum(o.nOT) + ' ya tiene OC: no se puede volver a cotizar', 'err'); return; }
     if (SEL.has(n)) SEL.delete(n);
     else {
       const otro = [...SEL].map(k => S.ots.find(x => Number(x.nOT) === k)).find(x => x && x.clienteId !== o.clienteId);
@@ -338,7 +341,8 @@ function renderEditor(param) {
     }
   }
   const o = ED.ot;
-  const ro = !!o.folioSII;
+  const ro = otCerrada(o);
+  if (ro) return renderInformeOT(app, o, ED.lineas);
   const cls = clientesActivos();
   const sols = S.solicitantes.filter(s => s.clienteId === o.clienteId && (s.activo !== false || s.id === o.solicitanteId));
   const ubis = S.ubicaciones.filter(u => u.clienteId === o.clienteId && (u.activo !== false || u.id === o.ubicacionId));
@@ -730,11 +734,12 @@ async function cargarFotos(nOT, forzar = false) {
 
 function renderFotosCard() {
   const box = $('#fotos-card'); if (!box || !ED) return;
-  const o = ED.ot, ro = !!o.folioSII, n = o.nOT;
+  const o = ED.ot, ro = otCerrada(o), n = o.nOT;
   const meta = n ? S.fotos.filter(f => String(f.nOT) === String(n)) : [];
   const fotos = FOTOS[n];
   let grid;
   if (!n) grid = '<p class="hint">Guarda la OT para poder agregar fotos.</p>';
+  else if (!meta.length && ro) grid = '<p class="hint">Sin fotos.</p>';
   else if (!meta.length && !fotos) grid = '<p class="hint">Sin fotos todavía. Saca fotos del antes, durante y después.</p>';
   else if (!fotos) grid = `<p class="hint">Cargando ${meta.length} foto${meta.length === 1 ? '' : 's'}…</p>`;
   else if (!fotos.length) grid = '<p class="hint">Sin fotos todavía. Saca fotos del antes, durante y después.</p>';
@@ -877,7 +882,8 @@ function renderCotCard() {
 
 function modalCot(id) {
   const c = S.cotizaciones.find(x => x.id === id); if (!c) return;
-  const e = estadoCot(c);
+  const cerrada = ocsDeCot(c).length > 0;
+  const e = cerrada ? 'cerrada' : estadoCot(c);
   const ots = otsDeCot(c);
   const m = abrirModal(`
     <h3>${esc(etiquetaCot(c))}<button class="x" data-cerrar>✕</button></h3>
@@ -886,9 +892,10 @@ function modalCot(id) {
     <p class="hint">OT incluidas: ${ots.map(x => { const o = S.ots.find(z => Number(z.nOT) === x); return otNum(x) + (o ? ' · ' + esc(o.titulo) : ''); }).join('<br>')}</p>
     <div class="btn-row" style="flex-direction:column">
       ${c.pdfUrl ? `<a class="btn btn-sec" href="${esc(c.pdfUrl)}" target="_blank" rel="noopener">👁 Ver PDF en Drive</a>` : ''}
-      ${c.numero ? `<button class="btn btn-primary" id="mc-ver">📄 Generar nueva versión</button>` : ''}
-      ${e !== 'Aprobada' && e !== 'Reemplazada' ? '<button class="btn btn-sec" id="mc-apr">✅ Marcar como aprobada</button>' : ''}
-      ${e !== 'Descartada' && e !== 'Reemplazada' ? '<button class="btn btn-danger" id="mc-desc">✕ Descartar</button>' : ''}
+      ${cerrada ? `<p class="hint">🔒 Cerrada: tiene la OC ${esc(ocsDeCot(c).map(o => o.nOC).join(', '))}.</p>` : ''}
+      ${c.numero && !cerrada ? `<button class="btn btn-primary" id="mc-ver">📄 Generar nueva versión</button>` : ''}
+      ${!cerrada && e !== 'Aprobada' && e !== 'Reemplazada' ? '<button class="btn btn-sec" id="mc-apr">✅ Marcar como aprobada</button>' : ''}
+      ${!cerrada && e !== 'Descartada' && e !== 'Reemplazada' ? '<button class="btn btn-danger" id="mc-desc">✕ Descartar</button>' : ''}
       ${e === 'Aprobada' || e === 'Descartada' ? '<button class="btn btn-sec" id="mc-vig">↺ Volver a vigente</button>' : ''}
     </div>`);
   const cambiar = async estado => {
@@ -970,6 +977,7 @@ function renderCot(app, clave) {
         <div class="li-body"><div class="li-tit">v${esc(v.version)} ${badgeCot(v)}</div><div class="li-sub">${fechaCorta(v.fecha)} ${esc(String(v.fecha).slice(11, 16))} · ${clp(v.total)}</div></div>
         ${v.pdfUrl ? `<a class="btn btn-sec btn-sm" href="${esc(v.pdfUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">PDF</a>` : ''}</div>`).join('')}
     </div>
+    ${ocsDeCot(c).length ? `<div class="readonly-banner">🔒 Cotización cerrada: tiene la OC <b>${esc(ocsDeCot(c).map(o => o.nOC).join(', '))}</b> asignada. Para modificarla, primero quita la OC (solo si aún no está facturada).</div>` : `
     <div class="card">
       ${c.numero ? `<button class="btn btn-primary btn-full" id="cd-ver">📄 Generar nueva versión (v${Calc.num(c.version) + 1})</button>` : '<p class="hint">Cotización anterior a la numeración COT: para una versión nueva, genera una cotización nueva desde la OT.</p>'}
       <div class="btn-row">
@@ -977,7 +985,7 @@ function renderCot(app, clave) {
         ${e !== 'Descartada' ? '<button class="btn btn-danger" id="cd-desc">✕ Descartar</button>' : ''}
         ${e === 'Aprobada' || e === 'Descartada' ? '<button class="btn btn-sec" id="cd-vig">↺ Vigente</button>' : ''}
       </div>
-    </div>`;
+    </div>`}`;
   app.querySelectorAll('[data-cot]').forEach(el => el.onclick = () => modalCot(el.dataset.cot));
   enlazarBloqueOC(app, c);
   const cambiar = async estado => {
@@ -1000,6 +1008,8 @@ function abrirGenerar(nOTs, numeroBase = '') {
   if (ED && ED.dirty && nOTs.includes(Number(ED.ot.nOT))) { toast('Guarda los cambios de la OT antes de generar la cotización', 'err'); return; }
   const ots = nOTs.map(n => S.ots.find(o => Number(o.nOT) === Number(n))).filter(Boolean);
   if (!ots.length) { toast('No se encontraron las OT', 'err'); return; }
+  const cerrada = ots.find(otCerrada);
+  if (cerrada) { toast(otNum(cerrada.nOT) + ' tiene OC asignada: la cotización está cerrada', 'err'); return; }
   if (new Set(ots.map(o => o.clienteId)).size > 1) { toast('Las OT deben ser del mismo cliente para cotizarlas juntas', 'err'); return; }
   if (ots.length > 1) {
     const sols = [...new Set(ots.map(o => o.solicitante || '(sin solicitante)'))];

@@ -536,3 +536,92 @@ async function descargarResumenPDF(d) {
     toast('✓ Resumen listo', 'ok');
   } catch (e) { toast('No se generó: ' + e.message, 'err'); }
 }
+
+// ════════════════════════════════════════════════════════ INFORME DE OT CERRADA
+/** Vista de solo lectura, tipo informe, para una OT con OC asignada o facturada. */
+function renderInformeOT(app, o, lineas) {
+  document.body.classList.remove('editor-open');
+  const incl = lineas.filter(l => l.incluida !== false);
+  const descartadas = lineas.length - incl.length;
+  const compras = incl.filter(l => Calc.tipoDe(l) === 'Compra');
+  const tiempos = incl.filter(l => Calc.tipoDe(l) === 'Tiempo de gestión');
+  const mo = incl.filter(l => Calc.tipoDe(l) === 'Mano de obra');
+  const sol = S.solicitantes.find(s => s.id === o.solicitanteId);
+  const cli = clienteDe(o.clienteId);
+  const ocs = S.ordenesCompra.filter(x => listaCSV(x.ots).includes(String(o.nOT)));
+  const fac = S.facturas.find(f => String(f.folio) === String(o.folioSII));
+  const cots = cotsDeOT(o.nOT).filter(c => ocs.some(x => listaCSV(x.cots).includes(c.id)));
+  const cotsVista = cots.length ? cots : cotsDeOT(o.nOT).filter(c => estadoCot(c) === 'Aprobada');
+  const sub = Calc.num(o.subtotal) || Calc.subtotal(incl);
+  const recargo = Calc.num(o.recargo);
+  const fila = (a, b, c, extra = '') => `<tr class="${extra}"><td>${a}</td><td class="num">${b}</td><td class="num">${c}</td></tr>`;
+  const estadoTxt = fac ? (fac.estadoPago === 'Pagada' ? `Pagada el ${fechaCorta(fac.fechaPago)}` : 'Facturada · pendiente de pago') : 'Con OC · por facturar';
+
+  app.innerHTML = `
+    <div class="ed-head">
+      <button class="back" onclick="location.hash='#/ots'" aria-label="Volver">←</button>
+      <h2>${otNum(o.nOT)}</h2>
+      <span class="badge ${fac && fac.estadoPago === 'Pagada' ? 'b-terminada' : fac ? 'b-folio' : 'b-oc'}">🔒 ${esc(estadoTxt)}</span>
+    </div>
+
+    <div class="card inf">
+      <div class="inf-eyebrow">Orden de trabajo · ${esc(o.estado)}</div>
+      <h1 class="inf-tit">${esc(o.titulo)}</h1>
+      ${o.descripcion ? `<p class="inf-desc">${esc(o.descripcion)}</p>` : ''}
+      <dl class="inf-dl">
+        <dt>Fecha</dt><dd>${fechaCorta(o.fechaInicio)}</dd>
+        <dt>Cliente</dt><dd>${esc(cli.razonSocial || o.cliente || '—')}</dd>
+        ${sol ? `<dt>Solicitante</dt><dd>${esc(sol.nombre)}${sol.cargo ? ' · ' + esc(sol.cargo) : ''}</dd>` : ''}
+        ${o.ubicacion ? `<dt>Ubicación</dt><dd>${esc(o.ubicacion)}</dd>` : ''}
+      </dl>
+    </div>
+
+    <div class="card inf">
+      <h2>📑 Documentos</h2>
+      <table class="inf-tab">
+        ${cotsVista.map(c => `<tr><td><b>Cotización</b><br><span class="hint">${fechaCorta(c.fecha)}</span></td><td>${esc(etiquetaCot(c))}</td>
+          <td class="num">${c.pdfUrl ? `<a href="${esc(c.pdfUrl)}" target="_blank" rel="noopener">PDF</a>` : `<a href="#/cot/${encodeURIComponent(claveCot(c))}">Ver</a>`}</td></tr>`).join('')}
+        ${ocs.map(x => `<tr><td><b>Orden de compra</b><br><span class="hint">${fechaCorta(x.fecha)} · ${clp(x.monto)}</span></td><td>N° ${esc(x.nOC)}</td>
+          <td class="num">${x.archivoUrl ? `<a href="${esc(x.archivoUrl)}" target="_blank" rel="noopener">Documento</a>` : ''}</td></tr>`).join('')}
+        ${fac ? `<tr><td><b>Factura</b><br><span class="hint">${fechaCorta(fac.fecha)} · ${clp(fac.total)}</span></td><td>Folio ${esc(fac.folio)}</td>
+          <td class="num">${fac.estadoPago === 'Pagada' ? `✓ Pagada<br><span class="hint">${fechaCorta(fac.fechaPago)}</span>` : 'Pendiente'}</td></tr>` : ''}
+      </table>
+    </div>
+
+    ${compras.length || tiempos.length ? `<div class="card inf">
+      <h2>🛒 Gestión de compras</h2>
+      <table class="inf-tab">
+        <tr class="th"><td>Ítem</td><td class="num">Detalle</td><td class="num">Monto</td></tr>
+        ${compras.map(l => fila(`${esc(l.descripcion)}<br><span class="hint">${esc(l.tipoItem || '')}</span>`, `${dec(l.cantidad)} × ${clp(l.costoUnit)}`, clp(Calc.montoLinea(l)))).join('')}
+        ${tiempos.map(l => fila(`${esc(l.descripcion)}<br><span class="hint">Tiempo de gestión</span>`, `${dec(l.horas)} h × ${clp(l.hh)}`, clp(Calc.montoLinea(l)))).join('')}
+        ${fila('<b>Subtotal</b>', '', '<b>' + clp(Calc.subtotal(compras.concat(tiempos))) + '</b>', 'tot')}
+      </table>
+    </div>` : ''}
+
+    ${mo.length ? `<div class="card inf">
+      <h2>🛠 Mano de obra</h2>
+      <table class="inf-tab">
+        <tr class="th"><td>Trabajo</td><td class="num">Detalle</td><td class="num">Monto</td></tr>
+        ${mo.map(l => fila(`${esc(l.descripcion)}<br><span class="hint">${esc(l.categoria || '')}</span>`,
+          Calc.esCantidad(l) ? `${dec(l.cantidad)} ${esc(l.unidad)} × ${clp(l.precioUnit)}` : `${dec(l.horas)} h × ${clp(l.hh)}`, clp(Calc.montoLinea(l)))).join('')}
+        ${fila('<b>Subtotal</b>', '', '<b>' + clp(Calc.subtotal(mo)) + '</b>', 'tot')}
+      </table>
+    </div>` : ''}
+
+    <div class="card inf">
+      <h2>🧮 Resumen</h2>
+      <div class="res-row"><span>Subtotal (costo)</span><span>${clp(sub)}</span></div>
+      <div class="res-row"><span>Recargo ${dec(o.recargoPct || 0)}% <small>(interno)</small></span><span>${clp(recargo)}</span></div>
+      <div class="res-row fuerte"><span>Neto</span><span>${clp(o.neto)}</span></div>
+      <div class="res-row"><span>IVA ${dec(o.ivaPct || 19)}%</span><span>${clp(o.iva)}</span></div>
+      <div class="res-row total"><span>Total</span><span>${clp(o.total)}</span></div>
+      ${descartadas ? `<p class="hint" style="margin-top:8px">${descartadas} línea${descartadas === 1 ? '' : 's'} descartada${descartadas === 1 ? '' : 's'} en la bitácora (no suman).</p>` : ''}
+    </div>
+
+    <div class="card" id="fotos-card"></div>
+
+    ${o.notas ? `<div class="card inf"><h2>📝 Notas internas</h2><p class="inf-desc">${esc(o.notas)}</p></div>` : ''}
+
+    <p class="hint" style="text-align:center;margin:6px 0 70px">🔒 OT cerrada${fac ? ` · facturada con folio ${esc(fac.folio)}` : ` · OC ${esc(o.nOC)}`}. Para corregir algo, primero hay que quitar ${fac ? 'la factura y luego ' : ''}la OC.</p>`;
+  renderFotosCard();
+}

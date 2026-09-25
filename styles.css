@@ -347,3 +347,18 @@ hr.sep { border: 0; border-top: 1px solid var(--linea); margin: 14px 0 0; }
 .tar-sub select, .tar-sub input { min-height: 42px; padding: 8px 10px; font-size: 15px; }
 .tf-actl { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; }
 .tf-actl input { width: 20px; height: 20px; min-height: 0; accent-color: var(--terra); }
+
+/* ── Informe de OT cerrada ────────────── */
+.inf-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--terra); }
+.inf-tit { font-size: 22px; margin: 4px 0 6px; line-height: 1.25; }
+.inf-desc { margin: 0 0 12px; color: var(--cafe-2); line-height: 1.45; white-space: pre-line; }
+.inf-dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; font-size: 14px; }
+.inf-dl dt { color: var(--gris); font-weight: 600; }
+.inf-dl dd { margin: 0; }
+.inf-tab { width: 100%; border-collapse: collapse; font-size: 14px; }
+.inf-tab td { padding: 8px 4px; border-bottom: 1px solid var(--linea); vertical-align: top; }
+.inf-tab td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.inf-tab tr.th td { font-size: 11px; font-weight: 800; color: var(--gris); text-transform: uppercase; letter-spacing: .4px; padding-top: 0; }
+.inf-tab tr.tot td { border-bottom: 0; padding-top: 10px; }
+.inf-tab a { color: var(--terra-osc); font-weight: 700; }
+.inf-tab .hint { font-size: 12px; }

@@ -11,7 +11,7 @@
  *      (Ejecutar como: Yo · Quién tiene acceso: Cualquier usuario).
  */
 
-const VERSION = '3.1';
+const VERSION = '3.1.1';
 const ESTADOS_COT = ['Vigente', 'Reemplazada', 'Descartada', 'Aprobada'];
 
 // ════════════════════════════════════════════════════════════ ESQUEMA
@@ -448,7 +448,7 @@ function saveOT_(ot, lineas) {
   if (!esNueva) {
     previa = ots.find(function (o) { return String(o.nOT) === String(ot.nOT); });
     if (!previa) throw new Error('No existe la OT ' + ot.nOT);
-    if (previa.folioSII) throw new Error('La OT ' + ot.nOT + ' ya está facturada (folio ' + previa.folioSII + ') y no se puede editar');
+    otCerrada_(previa);
   }
 
   // Validaciones de cabecera
@@ -643,7 +643,7 @@ function getFotos_(nOT) {
 
 function uploadFoto_(r) {
   const ot = otExiste_(r.nOT);
-  if (ot.folioSII) throw new Error('La OT ya está facturada');
+  otCerrada_(ot);
   if (!r.data) throw new Error('Falta la imagen');
   const etapa = ETAPAS_FOTO.indexOf(r.etapa) !== -1 ? r.etapa : 'Durante';
   const ahora = new Date();
@@ -666,6 +666,7 @@ function updateFoto_(item) {
   if (!item || !item.id) throw new Error('Falta la foto');
   const prev = readTable_('Fotos').find(function (f) { return f.id === item.id; });
   if (!prev) throw new Error('Foto no encontrada');
+  otCerrada_(otExiste_(prev.nOT));
   const obj = Object.assign({}, prev, {
     etapa: ETAPAS_FOTO.indexOf(item.etapa) !== -1 ? item.etapa : prev.etapa,
     descripcion: String(item.descripcion == null ? prev.descripcion : item.descripcion).trim(),
@@ -680,6 +681,7 @@ function deleteFoto_(id) {
   const rows = readTable_('Fotos');
   const idx = rows.findIndex(function (f) { return f.id === id; });
   if (idx === -1) throw new Error('Foto no encontrada');
+  otCerrada_(otExiste_(rows[idx].nOT));
   try { DriveApp.getFileById(rows[idx].fileId).setTrashed(true); } catch (e) { /* ya no estaba */ }
   sh.deleteRow(idx + 2);
   return { ok: true, id: id };
@@ -697,11 +699,14 @@ function saveCotizacion_(r) {
   const otsRows = ots.map(otExiste_);
   const clienteId = otsRows[0].clienteId;
   if (otsRows.some(function (o) { return o.clienteId !== clienteId; })) throw new Error('Todas las OT de una cotización deben ser del mismo cliente');
+  otsRows.forEach(otCerrada_);  // una OT con OC o facturada ya no se vuelve a cotizar
 
   const todas = readTable_('Cotizaciones');
   const numero = String(r.numero || '').trim();
   if (!/^COT-\d{4}-\d{3,}$/.test(numero)) throw new Error('Número de cotización inválido');
   const mismas = todas.filter(function (c) { return c.numero === numero; });
+  const ocCot = ocDeCotizacion_(mismas.map(function (c) { return c.id; }));
+  if (ocCot) throw new Error(numero + ' está cerrada: tiene la OC ' + ocCot.nOC + ' asignada');
   const maxV = mismas.reduce(function (m, c) { return Math.max(m, Number(c.version) || 0); }, 0);
   const version = Number(r.version) || 1;
   if (version !== maxV + 1) {
@@ -726,10 +731,25 @@ function saveCotizacion_(r) {
   return { item: obj, reemplazadas: mismas.map(function (c) { return c.id; }) };
 }
 
+/** Una OT con OC o con folio SII es un documento cerrado: no se edita ni se vuelve a cotizar. */
+function otCerrada_(o) {
+  if (o.folioSII) throw new Error('La OT ' + o.nOT + ' está facturada (folio ' + o.folioSII + ') y no se puede modificar');
+  if (String(o.nOC || '').trim()) throw new Error('La OT ' + o.nOT + ' tiene la OC ' + o.nOC + ' asignada y no se puede modificar. Si hay un error, quita primero la OC.');
+}
+
+/** OC asignada a alguna de estas cotizaciones (por ID de versión), o null. */
+function ocDeCotizacion_(ids) {
+  return readTable_('OrdenesCompra').find(function (o) {
+    return lista_(o.cots).some(function (id) { return ids.indexOf(id) !== -1; });
+  }) || null;
+}
+
 function setEstadoCotizacion_(id, estado) {
   if (ESTADOS_COT.indexOf(estado) === -1) throw new Error('Estado inválido: ' + estado);
   const c = readTable_('Cotizaciones').find(function (x) { return x.id === id; });
   if (!c) throw new Error('Cotización no encontrada');
+  const ocC = ocDeCotizacion_([id]);
+  if (ocC) throw new Error('La cotización está cerrada: tiene la OC ' + ocC.nOC + ' asignada');
   const obj = Object.assign({}, c, { estado: estado });
   upsert_('Cotizaciones', 'id', obj);
   return { item: obj };
@@ -787,8 +807,9 @@ function saveOC_(r) {
   const otsRows = ots.map(otExiste_);
   const clienteId = otsRows[0].clienteId;
   if (otsRows.some(function (o) { return o.clienteId !== clienteId; })) throw new Error('Las cotizaciones deben ser del mismo cliente');
-  const facturada = otsRows.find(function (o) { return o.folioSII; });
-  if (facturada) throw new Error('La OT ' + facturada.nOT + ' ya está facturada');
+  const conOC = ocDeCotizacion_(cotIds);
+  if (conOC) throw new Error('Esa cotización ya tiene la OC ' + conOC.nOC + ' asignada');
+  otsRows.forEach(otCerrada_);
 
   const file = guardarArchivo_(r.archivo, 'Órdenes de compra', 'OC_' + nOC.replace(/[^\w-]+/g, '_'));
   const obj = {

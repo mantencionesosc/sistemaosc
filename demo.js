@@ -258,7 +258,7 @@ const Demo = (() => {
       const esNueva = !ot.nOT;
       const previa = esNueva ? null : d.ots.find(o => String(o.nOT) === String(ot.nOT));
       if (!esNueva && !previa) throw new Error('No existe la OT ' + ot.nOT);
-      if (previa && previa.folioSII) throw new Error('La OT ya está facturada y no se puede editar');
+      if (previa && (previa.folioSII || String(previa.nOC || '').trim())) throw new Error('La OT tiene OC o está facturada y no se puede modificar');
       if (!String(ot.titulo || '').trim()) throw new Error('La OT necesita un título (ej: "Cambio de lavamanos")');
       const cli = d.clientes.find(c => c.id === ot.clienteId);
       if (!cli) throw new Error('Selecciona un cliente');
