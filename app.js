@@ -1,5 +1,5 @@
 /* Mantenciones OSC — App web (v2: OT, gestión de compras, fotos, cotización PDF, Clientes, Config)
- * Fuente de verdad: Google Sheets vía Apps Script (Web App).
+ * Fuente de verdad: Google Sheets vía Apps Script (Web App). 
  */
 
 // ════════════════════════════════════════════════════════ ALMACENAMIENTO LOCAL
