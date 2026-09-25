@@ -308,3 +308,34 @@ hr.sep { border: 0; border-top: 1px solid var(--linea); margin: 14px 0 0; }
 .ot-item.e-aprobada { border-left-color: var(--verde); }
 .ot-item.e-descartada, .ot-item.e-reemplazada { border-left-color: var(--gris); opacity: .65; }
 .bottom-nav a { font-size: 11.5px; }
+
+/* ── Facturación y panel ──────────────── */
+.kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.kpi { background: var(--blanco); border-radius: var(--radio); box-shadow: var(--sombra); padding: 12px 14px; }
+.kpi-t { font-size: 12px; font-weight: 700; color: var(--cafe-2); }
+.kpi-v { font-size: 21px; font-weight: 800; margin: 3px 0 2px; color: var(--cafe); font-variant-numeric: tabular-nums; }
+.kpi-s { font-size: 11.5px; color: var(--gris); line-height: 1.35; }
+.kpi-dest { background: var(--cafe); }
+.kpi-dest .kpi-t, .kpi-dest .kpi-s { color: #E4D8C8; }
+.kpi-dest .kpi-v { color: var(--blanco); }
+.grafico { width: 100%; height: auto; display: block; }
+.g-bar { fill: var(--terra); }
+.g-hit:hover .g-bar { fill: var(--terra-osc); }
+.g-base { stroke: var(--linea); stroke-width: 1; }
+.g-eje { font-size: 10px; fill: var(--gris); }
+.g-val { font-size: 10px; font-weight: 700; fill: var(--cafe); }
+.hbars { display: flex; flex-direction: column; gap: 8px; }
+.hbar { display: grid; grid-template-columns: 44% 1fr auto; gap: 8px; align-items: center; font-size: 13px; cursor: default; }
+.hbar-l { color: var(--cafe); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar-track { height: 14px; background: var(--arena); border-radius: 4px; overflow: hidden; }
+.hbar-fill { height: 100%; background: var(--terra); border-radius: 0 4px 4px 0; }
+.hbar:hover .hbar-fill { background: var(--terra-osc); }
+.hbar-v { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 12.5px; }
+.g-tip { position: fixed; z-index: 70; background: var(--cafe); color: var(--crema); font-size: 12.5px; font-weight: 600; padding: 6px 10px; border-radius: 8px; pointer-events: none; opacity: 0; transition: opacity .12s; white-space: nowrap; }
+.g-tip.on { opacity: 1; }
+.tabla-det { margin-top: 8px; font-size: 13px; }
+.tabla-det summary { cursor: pointer; color: var(--cafe-2); font-weight: 600; }
+.tabla { width: 100%; border-collapse: collapse; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.tabla th, .tabla td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--linea); }
+.tabla th:first-child, .tabla td:first-child { text-align: left; }
+.bottom-nav a { font-size: 10.5px; padding-left: 2px; padding-right: 2px; }

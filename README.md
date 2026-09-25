@@ -3,9 +3,9 @@
 App web para registrar las **órdenes de trabajo (OT)** de Mantenciones OSC desde el celular.
 La fuente de verdad es una **planilla de Google Sheets** y el backend es **Apps Script**.
 
-**Versión 2.4 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
+**Versión 3.0 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
 
-**Próxima etapa:** asignación de OC, folio SII y resumen por cliente (etapa 3).
+**Incluye también (v3.0):** órdenes de compra, facturación con folio SII, registro de pagos y panel de ventas.
 
 ---
 
@@ -42,6 +42,15 @@ Cada línea guarda el valor hora vigente cuando se creó y cada OT guarda el % d
 - **Sección 📄 Cotizaciones:** lista todas las cotizaciones (última versión de cada una) con filtros por estado y buscador. Al tocar una se ven sus OT, el historial de versiones con los PDF y los botones para generar una nueva versión, aprobar o descartar. En la cotización múltiple, cada OT muestra su fecha.
 - **Estados:** *Vigente* (la última), *Reemplazada* (automático al generar una versión nueva), *Descartada* y *Aprobada* (manuales, tocando la cotización en la OT).
 - Los valores por defecto de estas casillas y las condiciones se configuran en Config → Cotizaciones. La firma y los datos del emisor salen de Config → Datos de la empresa.
+
+## OC, facturación y pagos (v3.0)
+- **Asignar OC:** Cotizaciones → abrir una COT vigente → *🧾 Asignar OC*. Se ingresa N° de OC, fecha, neto, IVA y total (vienen con los montos de la cotización y la app avisa si no cuadran). Se puede adjuntar el PDF o una foto de la OC (queda en Drive, carpeta *Órdenes de compra*). Si la OC cubre varias cotizaciones del mismo cliente, se marcan ahí. La COT queda **Aprobada** y todas sus OT quedan con el N° de OC.
+- **Facturar:** Facturación → *Por facturar* → marcar una o varias OC del mismo cliente → *📋 Copiar datos* (texto para el portal del SII) → emitir la factura en el SII → *🧾 Registrar folio*. Las OT de esas OC quedan **facturadas y en solo lectura**.
+- **Pagos:** Facturación → *Facturas* → tocar una factura → fecha de pago y referencia → *Registrar pago*.
+- **Corregir errores:** una OC sin factura se puede quitar desde su detalle; una factura pendiente se puede quitar del registro (no la anula en el SII).
+- **Panel (Resumen):** por semana, mes, mes anterior, año o fechas a elección, y por cliente: facturado (neto, IVA, total), IVA del periodo (débito), cobrado, por cobrar, OT del periodo, lo que va en camino (cotizado sin OC y con OC sin factura), gráfico de facturado por mes y por categoría, y un PDF de resumen.
+  - *Facturado* se cuenta por la fecha de la factura; *OT del periodo*, por la fecha de la OT; *Cobrado*, por la fecha de pago.
+  - *Por categoría* reparte el neto de las OT facturadas en sus categorías (cada oficio, gestión de compras, materiales y compras), con el recargo incluido.
 
 ## Instalación (una sola vez, con la cuenta de Google de Mantenciones)
 

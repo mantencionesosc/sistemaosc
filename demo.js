@@ -3,11 +3,15 @@
  * Sirve para probar la app antes de conectar la planilla. Nada de esto llega a Google Sheets.
  */
 const Demo = (() => {
-  const KEY = 'osc_demo_db_v6';
+  const KEY = 'osc_demo_db_v7';
   const IMG = {};  // fotos de la demo: solo en memoria (no caben en el almacenamiento del navegador)
 
   function seed() {
-    const hoy = new Date().toISOString().slice(0, 10);
+    const loc = d => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 10); };
+    const hoy = loc(new Date());
+    const anio = new Date().getFullYear();
+    const dm = new Date(); dm.setDate(1); dm.setMonth(dm.getMonth() - 1); dm.setDate(12);
+    const mesAnt = loc(dm);
     const L = (k, orden, tipo, x) => Object.assign({ id: 'L-1-' + k, nOT: 1, orden, fecha: hoy, tipo, categoriaId: '', categoria: '', descripcion: '',
       horas: '', hh: '', factor: '', cantidad: '', costoUnit: '', recargoPct: '', monto: 0, incluida: true, tipoItemId: '', tipoItem: '' }, x);
     return {
@@ -33,7 +37,15 @@ const Demo = (() => {
         { id: 'TIP-5', nombre: 'Combustible', orden: 5, activo: true }
       ],
       fotos: [],
-      cotizaciones: [],
+      cotizaciones: [
+        { id: `COT-${anio}-001-v1`, nOT: 3, version: 1, fecha: mesAnt + ' 10:00', neto: 61100, total: 72709, pdfUrl: '', fileId: '', numero: `COT-${anio}-001`, ots: '3', estado: 'Aprobada', clienteId: 'CLI-1', solicitanteId: 'SOL-1', iva: 11609 }
+      ],
+      ordenesCompra: [
+        { nOC: '4500000001', fecha: mesAnt, clienteId: 'CLI-1', monto: 72709, notas: '', neto: 61100, iva: 11609, cots: `COT-${anio}-001-v1`, ots: '3', archivoUrl: '', archivoId: '', folio: '101', creada: mesAnt }
+      ],
+      facturas: [
+        { folio: '101', fecha: mesAnt, clienteId: 'CLI-1', nOC: '4500000001', neto: 61100, iva: 11609, total: 72709, estadoPago: 'Pagada', ots: '3', fechaPago: hoy, refPago: 'Transferencia de ejemplo', notas: '', creada: mesAnt }
+      ],
       clientes: [
         { id: 'CLI-1', razonSocial: 'Universidad de Concepción', nombreCorto: 'UdeC', rut: '', giro: '', direccion: '', comuna: 'Concepción', contacto: '', correo: '', telefono: '', activo: true }
       ],
@@ -55,7 +67,12 @@ const Demo = (() => {
           ubicacionId: 'UBI-2', ubicacion: 'Biblioteca — Sala de lectura', titulo: 'Cambio de enchufes',
           descripcion: 'Reemplazo de 6 enchufes dañados en la sala de lectura.', estado: 'Pendiente',
           nOC: '', folioSII: '', neto: 87100, ivaPct: 19, iva: 16549, total: 103649, notas: '', creada: hoy, actualizada: hoy, detallar: '',
-          subtotal: 67000, recargoPct: 30, recargo: 20100 }
+          subtotal: 67000, recargoPct: 30, recargo: 20100 },
+        { nOT: 3, fechaInicio: mesAnt, clienteId: 'CLI-1', cliente: 'UdeC', solicitanteId: 'SOL-1', solicitante: 'Jefa de ejemplo',
+          ubicacionId: 'UBI-1', ubicacion: 'Edificio de ejemplo — Baño 2° piso', titulo: 'Reparación de puerta',
+          descripcion: 'Cambio de bisagras y ajuste de puerta.', estado: 'Terminada',
+          nOC: '4500000001', folioSII: '101', neto: 61100, ivaPct: 19, iva: 11609, total: 72709, notas: '', creada: mesAnt, actualizada: mesAnt, detallar: '',
+          subtotal: 47000, recargoPct: 30, recargo: 14100 }
       ],
       lineas: [
         L('a', 1, 'Compra', { tipoItemId: 'TIP-1', tipoItem: 'Material', descripcion: 'Lavamanos loza blanco (Sodimac)', cantidad: 1, costoUnit: 45000, recargoPct: 0, monto: 45000 }),
@@ -68,7 +85,9 @@ const Demo = (() => {
         L('h', 8, 'Mano de obra', { categoriaId: 'CAT-6', categoria: 'Gasfitería', descripcion: 'Instalación de lavamanos y conexiones', horas: 1.5, hh: 15000, factor: 1, monto: 22500 }),
         L('i', 1, 'Compra', { id: 'L-2-i', nOT: 2, tipoItemId: 'TIP-1', tipoItem: 'Material', descripcion: 'Enchufes dobles', cantidad: 6, costoUnit: 3500, recargoPct: 0, monto: 21000 }),
         L('j', 2, 'Tiempo de gestión', { id: 'L-2-j', nOT: 2, categoriaId: 'CAT-1', categoria: 'Gestión de compras', descripcion: 'Compra de enchufes', horas: 1, hh: 10000, factor: 1, monto: 10000 }),
-        L('k', 3, 'Mano de obra', { id: 'L-2-k', nOT: 2, categoriaId: 'CAT-3', categoria: 'Electricidad', descripcion: 'Cambio de 6 enchufes', horas: 2, hh: 18000, factor: 1, monto: 36000 })
+        L('k', 3, 'Mano de obra', { id: 'L-2-k', nOT: 2, categoriaId: 'CAT-3', categoria: 'Electricidad', descripcion: 'Cambio de 6 enchufes', horas: 2, hh: 18000, factor: 1, monto: 36000 }),
+        L('l', 1, 'Compra', { id: 'L-3-l', nOT: 3, fecha: mesAnt, tipoItemId: 'TIP-1', tipoItem: 'Material', descripcion: 'Bisagras', cantidad: 4, costoUnit: 2000, recargoPct: 0, monto: 8000 }),
+        L('m', 2, 'Mano de obra', { id: 'L-3-m', nOT: 3, fecha: mesAnt, categoriaId: 'CAT-5', categoria: 'Carpintería', descripcion: 'Cambio de bisagras y ajuste', horas: 3, hh: 13000, factor: 1, monto: 39000 })
       ]
     };
   }
@@ -149,6 +168,56 @@ const Demo = (() => {
       const d = load(); const c = d.cotizaciones.find(x => x.id === id);
       if (!c) throw new Error('Cotización no encontrada');
       c.estado = estado; return { item: clone(c) };
+    },
+    saveOC: r => {
+      const d = load();
+      if (d.ordenesCompra.some(o => String(o.nOC) === String(r.nOC))) throw new Error('La OC ' + r.nOC + ' ya está registrada');
+      const cots = r.cots.map(id => d.cotizaciones.find(c => c.id === id));
+      const ots = [...new Set(cots.flatMap(c => String(c.ots || c.nOT).split(',').filter(Boolean)))];
+      const otRows = ots.map(n => d.ots.find(o => String(o.nOT) === n));
+      if (otRows.some(o => o.folioSII)) throw new Error('Alguna OT ya está facturada');
+      const o = { nOC: String(r.nOC), fecha: r.fecha || hoy(), clienteId: otRows[0].clienteId, monto: num(r.total), notas: r.notas || '', neto: num(r.neto), iva: num(r.iva),
+        cots: r.cots.join(','), ots: ots.join(','), archivoUrl: '', archivoId: '', folio: '', creada: ahora() };
+      d.ordenesCompra.push(o);
+      cots.forEach(c => { c.estado = 'Aprobada'; });
+      otRows.forEach(x => { x.nOC = [...new Set(String(x.nOC || '').split(',').map(v => v.trim()).filter(Boolean).concat([o.nOC]))].join(', '); });
+      return { item: clone(o), cots: r.cots, ots: clone(otRows) };
+    },
+    deleteOC: ({ nOC }) => {
+      const d = load(); const o = d.ordenesCompra.find(x => String(x.nOC) === String(nOC));
+      if (!o) throw new Error('OC no encontrada'); if (o.folio) throw new Error('La OC ya está facturada');
+      d.ordenesCompra = d.ordenesCompra.filter(x => x !== o);
+      String(o.ots).split(',').forEach(n => { const ot = d.ots.find(x => String(x.nOT) === n); if (ot) ot.nOC = String(ot.nOC).split(',').map(v => v.trim()).filter(v => v && v !== String(nOC)).join(', '); });
+      String(o.cots).split(',').forEach(id => { const c = d.cotizaciones.find(x => x.id === id); if (c && c.estado === 'Aprobada') c.estado = 'Vigente'; });
+      return { ok: true };
+    },
+    saveFactura: r => {
+      const d = load();
+      if (d.facturas.some(f => String(f.folio) === String(r.folio))) throw new Error('El folio ' + r.folio + ' ya está registrado');
+      const ocs = r.ocs.map(n => d.ordenesCompra.find(o => String(o.nOC) === String(n)));
+      if (ocs.some(o => o.folio)) throw new Error('Alguna OC ya está facturada');
+      const ots = [...new Set(ocs.flatMap(o => String(o.ots).split(',').filter(Boolean)))];
+      const f = { folio: String(r.folio), fecha: r.fecha || hoy(), clienteId: ocs[0].clienteId, nOC: ocs.map(o => o.nOC).join(','), neto: num(r.neto), iva: num(r.iva), total: num(r.total),
+        estadoPago: 'Pendiente', ots: ots.join(','), fechaPago: '', refPago: '', notas: r.notas || '', creada: ahora() };
+      d.facturas.push(f);
+      ocs.forEach(o => { o.folio = f.folio; });
+      const otRows = ots.map(n => d.ots.find(o => String(o.nOT) === n)); otRows.forEach(o => { o.folioSII = f.folio; });
+      return { item: clone(f), ocs: ocs.map(o => o.nOC), ots: clone(otRows) };
+    },
+    deleteFactura: ({ folio }) => {
+      const d = load(); const f = d.facturas.find(x => String(x.folio) === String(folio));
+      if (!f) throw new Error('Factura no encontrada'); if (f.estadoPago === 'Pagada') throw new Error('La factura está pagada');
+      d.facturas = d.facturas.filter(x => x !== f);
+      d.ordenesCompra.forEach(o => { if (String(o.folio) === String(folio)) o.folio = ''; });
+      d.ots.forEach(o => { if (String(o.folioSII) === String(folio)) o.folioSII = ''; });
+      return { ok: true };
+    },
+    setPago: r => {
+      const d = load(); const f = d.facturas.find(x => String(x.folio) === String(r.folio));
+      if (!f) throw new Error('Factura no encontrada');
+      const pag = r.estadoPago === 'Pagada';
+      Object.assign(f, { estadoPago: pag ? 'Pagada' : 'Pendiente', fechaPago: pag ? (r.fechaPago || hoy()) : '', refPago: pag ? (r.refPago || '') : '' });
+      return { item: clone(f) };
     },
     saveTipoItem: ({ item }) => {
       const d = load();

@@ -13,11 +13,11 @@ let API_URL = LS.get('osc_url');
 let TOKEN = LS.get('osc_token');
 let DEMO = LS.get('osc_demo') === '1';
 
-const S = { config: {}, categorias: [], tiposItem: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [] };
+const S = { config: {}, categorias: [], tiposItem: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [], ordenesCompra: [], facturas: [] };
 const FOTOS = {};   // nOT -> [{...foto, data}] (se cargan al abrir la OT)
 let SYNCED = false;
-const APP_VERSION = '2.4';
-const API_REQUERIDA = '2.3';  // versión mínima del Apps Script que necesita esta app
+const APP_VERSION = '3.0';
+const API_REQUERIDA = '3.0';  // versión mínima del Apps Script que necesita esta app
 const cmpVer = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
 let API_VERSION = '';
 
@@ -153,7 +153,7 @@ async function sync(silencioso = false) {
     Object.assign(S, {
       config: d.config || {}, categorias: d.categorias || [], tiposItem: d.tiposItem || [], clientes: d.clientes || [],
       solicitantes: d.solicitantes || [], ubicaciones: d.ubicaciones || [], ots: d.ots || [], lineas: d.lineas || [],
-      fotos: d.fotos || [], cotizaciones: d.cotizaciones || []
+      fotos: d.fotos || [], cotizaciones: d.cotizaciones || [], ordenesCompra: d.ordenesCompra || [], facturas: d.facturas || []
     });
     SYNCED = true;
     API_VERSION = d.version || '(anterior a 2.1.2)';
@@ -218,6 +218,7 @@ function render() {
   if (vista === 'cliente') return renderCliente(app, param);
   if (vista === 'config') return renderConfig(app);
   if (vista === 'cots') return renderCots(app);
+  if (vista === 'fact') return renderFact(app);
   if (vista === 'cot') return renderCot(app, decodeURIComponent(param || ''));
   return renderOTs(app);
 }
@@ -888,6 +889,7 @@ function renderCot(app, clave) {
       <div class="res-row total"><span>Total</span><span>${clp(c.total)}</span></div>
       ${sol ? `<p class="hint">Atención: ${esc(sol.nombre)}${sol.cargo ? ' · ' + esc(sol.cargo) : ''}</p>` : ''}
     </div>
+    ${bloqueOC(c)}
     <div class="card">
       <h2>🗂 Versiones</h2>
       ${g.versiones.map(v => `<div class="list-item ${['Reemplazada', 'Descartada'].includes(estadoCot(v)) ? 'inactivo' : ''}" data-cot="${esc(v.id)}">
@@ -903,6 +905,7 @@ function renderCot(app, clave) {
       </div>
     </div>`;
   app.querySelectorAll('[data-cot]').forEach(el => el.onclick = () => modalCot(el.dataset.cot));
+  enlazarBloqueOC(app, c);
   const cambiar = async estado => {
     toast('Guardando…');
     try {
@@ -1043,12 +1046,12 @@ async function armarPDF(ots, numero, version, opciones, atencionId) {
   return { doc, totales };
 }
 
-function modalCompartir(file, item) {
+function modalCompartir(file, item, mensaje) {
   const url = URL.createObjectURL(file);
   const puedeCompartir = !!(navigator.canShare && navigator.canShare({ files: [file] }));
   abrirModal(`
     <h3>✓ ${esc(file.name.replace('.pdf', '').replace(/_/g, ' '))}<button class="x" data-cerrar>✕</button></h3>
-    <p class="hint">Quedó guardada${item.pdfUrl ? ' en Drive' : ''} y registrada en ${otsDeCot(item).length > 1 ? 'las OT incluidas' : 'la OT'}.</p>
+    <p class="hint">${mensaje || `Quedó guardada${item.pdfUrl ? ' en Drive' : ''} y registrada en ${otsDeCot(item).length > 1 ? 'las OT incluidas' : 'la OT'}.`}</p>
     <div class="btn-row" style="flex-direction:column">
       ${puedeCompartir ? '<button class="btn btn-primary" id="cp-share">📤 Compartir (WhatsApp, correo…)</button>' : ''}
       <a class="btn ${puedeCompartir ? 'btn-sec' : 'btn-primary'}" href="${url}" download="${esc(file.name)}">⬇ Descargar PDF</a>
@@ -1312,7 +1315,7 @@ function renderConfig(app) {
   const off = $('#k-demo-off');
   if (off) off.onclick = async () => {
     DEMO = false; LS.set('osc_demo', '0');
-    Object.assign(S, { config: {}, categorias: [], tiposItem: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [] });
+    Object.assign(S, { config: {}, categorias: [], tiposItem: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [], ordenesCompra: [], facturas: [] });
     Object.keys(FOTOS).forEach(k => delete FOTOS[k]);
     SYNCED = false; cargarCache(); actualizarEstado(); render();
     if (API_URL && TOKEN) sync(true);

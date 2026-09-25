@@ -11,7 +11,7 @@
  *      (Ejecutar como: Yo · Quién tiene acceso: Cualquier usuario).
  */
 
-const VERSION = '2.3';
+const VERSION = '3.0';
 const ESTADOS_COT = ['Vigente', 'Reemplazada', 'Descartada', 'Aprobada'];
 
 // ════════════════════════════════════════════════════════════ ESQUEMA
@@ -74,11 +74,16 @@ const SCHEMA = {
   ],
   // Hojas de la etapa 3 (se crean ahora para dejar la estructura lista)
   OrdenesCompra: [
-    ['nOC', 'N° OC'], ['fecha', 'Fecha'], ['clienteId', 'Cliente ID'], ['monto', 'Monto'], ['notas', 'Notas']
+    ['nOC', 'N° OC'], ['fecha', 'Fecha'], ['clienteId', 'Cliente ID'], ['monto', 'Total (bruto)'], ['notas', 'Notas'],
+    // desde v3.0
+    ['neto', 'Neto'], ['iva', 'IVA'], ['cots', 'Cotizaciones (ID)'], ['ots', 'OT incluidas'],
+    ['archivoUrl', 'Documento OC (Drive)'], ['archivoId', 'Documento Drive ID'], ['folio', 'Folio factura'], ['creada', 'Registrada']
   ],
   Facturas: [
     ['folio', 'Folio SII'], ['fecha', 'Fecha'], ['clienteId', 'Cliente ID'], ['nOC', 'N° OC'],
-    ['neto', 'Neto'], ['iva', 'IVA'], ['total', 'Total'], ['estadoPago', 'Estado de pago']
+    ['neto', 'Neto'], ['iva', 'IVA'], ['total', 'Total'], ['estadoPago', 'Estado de pago'],
+    // desde v3.0
+    ['ots', 'OT incluidas'], ['fechaPago', 'Fecha de pago'], ['refPago', 'Referencia de pago'], ['notas', 'Notas'], ['creada', 'Registrada']
   ]
 };
 
@@ -87,8 +92,8 @@ const TEXT_COLS = {
   Clientes: ['rut', 'telefono'],
   Solicitantes: ['telefono'],
   OT: ['nOC', 'folioSII'],
-  OrdenesCompra: ['nOC'],
-  Facturas: ['folio', 'nOC'],
+  OrdenesCompra: ['nOC', 'cots', 'ots', 'folio'],
+  Facturas: ['folio', 'nOC', 'ots', 'refPago'],
   Cotizaciones: ['ots', 'numero']  // "3,4" no debe convertirse en el número 3,4
 };
 
@@ -270,7 +275,12 @@ const ACTIONS = {
   updateFoto: function (r) { return withLock_(function () { return updateFoto_(r.item); }); },
   deleteFoto: function (r) { return withLock_(function () { return deleteFoto_(r.id); }); },
   saveCotizacion: function (r) { return withLock_(function () { return saveCotizacion_(r); }); },
-  setEstadoCotizacion: function (r) { return withLock_(function () { return setEstadoCotizacion_(r.id, r.estado); }); }
+  setEstadoCotizacion: function (r) { return withLock_(function () { return setEstadoCotizacion_(r.id, r.estado); }); },
+  saveOC: function (r) { return withLock_(function () { return saveOC_(r); }); },
+  deleteOC: function (r) { return withLock_(function () { return deleteOC_(r.nOC); }); },
+  saveFactura: function (r) { return withLock_(function () { return saveFactura_(r); }); },
+  deleteFactura: function (r) { return withLock_(function () { return deleteFactura_(r.folio); }); },
+  setPago: function (r) { return withLock_(function () { return setPago_(r); }); }
 };
 
 function getAll_() {
@@ -285,7 +295,9 @@ function getAll_() {
     ots: readTable_('OT'),
     lineas: readTable_('OT_Lineas'),
     fotos: readTable_('Fotos'),
-    cotizaciones: readTable_('Cotizaciones')
+    cotizaciones: readTable_('Cotizaciones'),
+    ordenesCompra: readTable_('OrdenesCompra'),
+    facturas: readTable_('Facturas')
   };
 }
 
@@ -664,6 +676,144 @@ function carpetaCotizaciones_() {
 }
 
 function slug_(s) { return normTxt_(s).replace(/[^a-z0-9]+/g, '-'); }
+
+// ════════════════════════════════════════════════════════════ OC, FACTURAS Y PAGOS
+const lista_ = v => String(v == null ? '' : v).split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+
+/** Actualiza campos de varias OT de una vez (sin tocar sus líneas). */
+function actualizarOTs_(nOTs, fn) {
+  const set = nOTs.map(String);
+  readTable_('OT').forEach(function (o) {
+    if (set.indexOf(String(o.nOT)) !== -1) upsert_('OT', 'nOT', Object.assign({}, o, fn(o), { actualizada: now_() }));
+  });
+}
+
+function guardarArchivo_(archivo, carpetaNombre, nombreBase) {
+  if (!archivo || !archivo.data) return null;
+  const raiz = carpetaRaiz_();
+  const it = raiz.getFoldersByName(carpetaNombre);
+  const carpeta = it.hasNext() ? it.next() : raiz.createFolder(carpetaNombre);
+  const mime = archivo.mime || 'application/octet-stream';
+  const ext = mime === 'application/pdf' ? '.pdf' : mime.indexOf('image/') === 0 ? '.jpg' : '';
+  const file = carpeta.createFile(Utilities.newBlob(Utilities.base64Decode(archivo.data), mime, nombreBase + ext));
+  return file;
+}
+
+/**
+ * Registra una OC para una o varias cotizaciones (mismo cliente).
+ * r: { nOC, fecha, neto, iva, total, notas, cots:[idCotizacion], archivo?:{data,mime} }
+ */
+function saveOC_(r) {
+  const nOC = String(r.nOC || '').trim();
+  if (!nOC) throw new Error('Falta el N° de OC');
+  if (readTable_('OrdenesCompra').some(function (o) { return String(o.nOC) === nOC; })) throw new Error('La OC ' + nOC + ' ya está registrada');
+  const cotIds = (r.cots || []).map(String);
+  if (!cotIds.length) throw new Error('Elige al menos una cotización');
+  const todas = readTable_('Cotizaciones');
+  const cots = cotIds.map(function (id) {
+    const c = todas.find(function (x) { return x.id === id; });
+    if (!c) throw new Error('Cotización no encontrada: ' + id);
+    if (['Reemplazada', 'Descartada'].indexOf(c.estado) !== -1) throw new Error((c.numero || id) + ' está ' + c.estado.toLowerCase() + '; usa la versión vigente');
+    return c;
+  });
+  const ots = [];
+  cots.forEach(function (c) { lista_(c.ots || c.nOT).forEach(function (n) { if (ots.indexOf(n) === -1) ots.push(n); }); });
+  const otsRows = ots.map(otExiste_);
+  const clienteId = otsRows[0].clienteId;
+  if (otsRows.some(function (o) { return o.clienteId !== clienteId; })) throw new Error('Las cotizaciones deben ser del mismo cliente');
+  const facturada = otsRows.find(function (o) { return o.folioSII; });
+  if (facturada) throw new Error('La OT ' + facturada.nOT + ' ya está facturada');
+
+  const file = guardarArchivo_(r.archivo, 'Órdenes de compra', 'OC_' + nOC.replace(/[^\w-]+/g, '_'));
+  const obj = {
+    nOC: nOC, fecha: r.fecha || today_(), clienteId: clienteId, monto: num_(r.total), notas: String(r.notas || ''),
+    neto: num_(r.neto), iva: num_(r.iva), cots: cotIds.join(','), ots: ots.join(','),
+    archivoUrl: file ? file.getUrl() : '', archivoId: file ? file.getId() : '', folio: '', creada: now_()
+  };
+  upsert_('OrdenesCompra', 'nOC', obj);
+  cots.forEach(function (c) { upsert_('Cotizaciones', 'id', Object.assign({}, c, { estado: 'Aprobada' })); });
+  actualizarOTs_(ots, function (o) { return { nOC: lista_(o.nOC).concat([nOC]).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(', ') }; });
+  return { item: obj, cots: cots.map(function (c) { return c.id; }), ots: readTable_('OT').filter(function (o) { return ots.indexOf(String(o.nOT)) !== -1; }) };
+}
+
+function deleteOC_(nOC) {
+  const rows = readTable_('OrdenesCompra');
+  const idx = rows.findIndex(function (o) { return String(o.nOC) === String(nOC); });
+  if (idx === -1) throw new Error('OC no encontrada');
+  const oc = rows[idx];
+  if (oc.folio) throw new Error('La OC ' + nOC + ' ya está facturada (folio ' + oc.folio + '). Quita primero la factura.');
+  const ots = lista_(oc.ots);
+  actualizarOTs_(ots, function (o) { return { nOC: lista_(String(o.nOC).replace(/\s/g, '')).filter(function (x) { return x !== String(nOC); }).join(', ') }; });
+  // Las cotizaciones vuelven a Vigente si no tienen otra OC
+  const otras = rows.filter(function (o, i) { return i !== idx; });
+  const todas = readTable_('Cotizaciones');
+  lista_(oc.cots).forEach(function (id) {
+    const c = todas.find(function (x) { return x.id === id; });
+    const tieneOtra = otras.some(function (o) { return lista_(o.cots).indexOf(id) !== -1; });
+    if (c && !tieneOtra && c.estado === 'Aprobada') upsert_('Cotizaciones', 'id', Object.assign({}, c, { estado: 'Vigente' }));
+  });
+  if (oc.archivoId) { try { DriveApp.getFileById(oc.archivoId).setTrashed(true); } catch (e) { /* ya no estaba */ } }
+  sheet_('OrdenesCompra').deleteRow(idx + 2);
+  return { ok: true, nOC: nOC };
+}
+
+/**
+ * Registra el folio SII de una factura que cubre una o varias OC (mismo cliente).
+ * r: { folio, fecha, ocs:[nOC], neto, iva, total, notas }
+ */
+function saveFactura_(r) {
+  const folio = String(r.folio || '').trim();
+  if (!folio) throw new Error('Falta el folio SII');
+  if (readTable_('Facturas').some(function (f) { return String(f.folio) === folio; })) throw new Error('El folio ' + folio + ' ya está registrado');
+  const ocsAll = readTable_('OrdenesCompra');
+  const ocs = (r.ocs || []).map(function (n) {
+    const oc = ocsAll.find(function (o) { return String(o.nOC) === String(n); });
+    if (!oc) throw new Error('OC no encontrada: ' + n);
+    if (oc.folio) throw new Error('La OC ' + n + ' ya está facturada (folio ' + oc.folio + ')');
+    return oc;
+  });
+  if (!ocs.length) throw new Error('Elige al menos una OC');
+  const clienteId = ocs[0].clienteId;
+  if (ocs.some(function (o) { return o.clienteId !== clienteId; })) throw new Error('Las OC deben ser del mismo cliente');
+  const ots = [];
+  ocs.forEach(function (o) { lista_(o.ots).forEach(function (n) { if (ots.indexOf(n) === -1) ots.push(n); }); });
+  const neto = num_(r.neto), iva = num_(r.iva), total = num_(r.total);
+  if (!(total > 0)) throw new Error('El total de la factura debe ser mayor que 0');
+  const obj = {
+    folio: folio, fecha: r.fecha || today_(), clienteId: clienteId, nOC: ocs.map(function (o) { return o.nOC; }).join(','),
+    neto: neto, iva: iva, total: total, estadoPago: 'Pendiente',
+    ots: ots.join(','), fechaPago: '', refPago: '', notas: String(r.notas || ''), creada: now_()
+  };
+  upsert_('Facturas', 'folio', obj);
+  ocs.forEach(function (o) { upsert_('OrdenesCompra', 'nOC', Object.assign({}, o, { folio: folio })); });
+  actualizarOTs_(ots, function () { return { folioSII: folio }; });
+  return { item: obj, ocs: ocs.map(function (o) { return o.nOC; }), ots: readTable_('OT').filter(function (o) { return ots.indexOf(String(o.nOT)) !== -1; }) };
+}
+
+function deleteFactura_(folio) {
+  const rows = readTable_('Facturas');
+  const idx = rows.findIndex(function (f) { return String(f.folio) === String(folio); });
+  if (idx === -1) throw new Error('Factura no encontrada');
+  const f = rows[idx];
+  if (f.estadoPago === 'Pagada') throw new Error('La factura ' + folio + ' está pagada. Márcala como pendiente antes de quitarla.');
+  readTable_('OrdenesCompra').forEach(function (o) { if (String(o.folio) === String(folio)) upsert_('OrdenesCompra', 'nOC', Object.assign({}, o, { folio: '' })); });
+  actualizarOTs_(lista_(f.ots), function (o) { return String(o.folioSII) === String(folio) ? { folioSII: '' } : {}; });
+  sheet_('Facturas').deleteRow(idx + 2);
+  return { ok: true, folio: folio };
+}
+
+function setPago_(r) {
+  const f = readTable_('Facturas').find(function (x) { return String(x.folio) === String(r.folio); });
+  if (!f) throw new Error('Factura no encontrada');
+  const pagada = r.estadoPago === 'Pagada';
+  const obj = Object.assign({}, f, {
+    estadoPago: pagada ? 'Pagada' : 'Pendiente',
+    fechaPago: pagada ? (r.fechaPago || today_()) : '',
+    refPago: pagada ? String(r.refPago || '') : ''
+  });
+  upsert_('Facturas', 'folio', obj);
+  return { item: obj };
+}
 
 // ════════════════════════════════════════════════════════════ UTILIDADES DE HOJA
 function sheet_(name) {

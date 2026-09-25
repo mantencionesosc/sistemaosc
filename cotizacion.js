@@ -308,5 +308,79 @@ const Cotizacion = (() => {
     return doc;
   }
 
-  return { generar, filas, repartirRecargo };
+  /** PDF horizontal de resumen de trabajos y ventas.
+   *  datos: { cfg, logo, titulo, cliente, periodo, filas:[{fecha, ot, titulo, cot, oc, folio, estado, neto}], kpis:[[etq, val]], categorias:[[cat, val]] } */
+  function resumen(datos) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+    const PW = 297, PH = 210, AN = PW - 2 * M;
+    const cfg = datos.cfg || {};
+    const color = (c, tipo = 'text') => tipo === 'text' ? doc.setTextColor(...c) : tipo === 'fill' ? doc.setFillColor(...c) : doc.setDrawColor(...c);
+    const font = (e = 'normal', z = 9, c = C.cafe) => { doc.setFont('helvetica', e); doc.setFontSize(z); color(c); };
+    let y = M;
+    if (datos.logo) { const p = doc.getImageProperties(datos.logo); doc.addImage(datos.logo, 'PNG', M, y - 2, 34, 34 * p.height / p.width); }
+    font('bold', 16, C.terra); doc.text(t(datos.titulo), PW - M, y + 6, { align: 'right' });
+    font('normal', 10, C.cafe2); doc.text(t(datos.cliente + ' · ' + datos.periodo), PW - M, y + 12, { align: 'right' });
+    y += 22;
+    color(C.terra, 'draw'); doc.setLineWidth(0.6); doc.line(M, y, PW - M, y); y += 6;
+
+    // KPIs en una fila
+    const kw = AN / datos.kpis.length;
+    datos.kpis.forEach(([etq, val], i) => {
+      const x = M + i * kw;
+      color(C.arena, 'fill'); doc.roundedRect(x + 1, y, kw - 2, 16, 1.5, 1.5, 'F');
+      font('normal', 7.5, C.cafe2); doc.text(t(etq), x + 4, y + 5.5);
+      font('bold', 11.5, C.cafe); doc.text(t(val), x + 4, y + 12.5);
+    });
+    y += 22;
+
+    // Tabla de OT
+    const cols = [['Fecha', 20], ['OT', 18], ['Trabajo', 88], ['Cotización', 34], ['OC', 30], ['Folio', 20], ['Estado', 23], ['Neto', AN - 233]];
+    const cab = () => {
+      color(C.cafe, 'fill'); doc.rect(M, y, AN, 7, 'F'); font('bold', 8, C.blanco);
+      let x = M; cols.forEach(([n, w], i) => { doc.text(n.toUpperCase(), i === cols.length - 1 ? x + w - 2 : x + 2, y + 4.8, i === cols.length - 1 ? { align: 'right' } : undefined); x += w; });
+      y += 7;
+    };
+    cab();
+    let total = 0;
+    datos.filas.forEach((f, k) => {
+      font('normal', 8.5);
+      const tit = doc.splitTextToSize(t(f.titulo), cols[2][1] - 4);
+      const alto = Math.max(6.5, tit.length * 3.8 + 2.7);
+      if (y + alto > PH - PIE) { doc.addPage(); y = M; cab(); }
+      if (k % 2) { color([250, 246, 240], 'fill'); doc.rect(M, y, AN, alto, 'F'); }
+      font('normal', 8.5);
+      let x = M;
+      const vals = [f.fecha, f.ot, null, f.cot, f.oc, f.folio, f.estado, clp(f.neto)];
+      cols.forEach(([, w], i) => {
+        if (i === 2) tit.forEach((ln, j) => doc.text(ln, x + 2, y + 4.3 + j * 3.8));
+        else if (i === cols.length - 1) { font('bold', 8.5); doc.text(vals[i], x + w - 2, y + 4.3, { align: 'right' }); font('normal', 8.5); }
+        else doc.text(doc.splitTextToSize(t(vals[i] || '—'), w - 3)[0] || '', x + 2, y + 4.3);
+        x += w;
+      });
+      total += f.neto;
+      y += alto;
+    });
+    if (!datos.filas.length) { font('italic', 9, C.gris); doc.text('Sin OT en el periodo.', M + 2, y + 5); y += 8; }
+    color(C.linea, 'draw'); doc.setLineWidth(0.3); doc.line(M, y, PW - M, y);
+    font('bold', 9.5); doc.text('Total neto OT: ' + clp(total), PW - M - 2, y + 6, { align: 'right' });
+    y += 12;
+
+    // Por categoría
+    if ((datos.categorias || []).length) {
+      if (y + 10 + datos.categorias.length * 5 > PH - PIE) { doc.addPage(); y = M; }
+      font('bold', 8, C.terra); doc.text('FACTURADO POR CATEGORÍA (NETO)', M, y); y += 5;
+      datos.categorias.forEach(([c, v]) => { font('normal', 9); doc.text(t(c), M, y); font('bold', 9); doc.text(t(v), M + 80, y, { align: 'right' }); y += 5; });
+    }
+
+    const n = doc.getNumberOfPages();
+    const pie = t([cfg.EMPRESA_NOMBRE || 'Mantenciones OSC', cfg.EMPRESA_RUT && 'RUT ' + cfg.EMPRESA_RUT].filter(Boolean).join(' · '));
+    for (let i = 1; i <= n; i++) {
+      doc.setPage(i); color(C.linea, 'draw'); doc.setLineWidth(0.3); doc.line(M, PH - 12, PW - M, PH - 12);
+      font('normal', 8, C.gris); doc.text(pie, M, PH - 7.5); doc.text(`Página ${i} de ${n}`, PW - M, PH - 7.5, { align: 'right' });
+    }
+    return doc;
+  }
+
+  return { generar, filas, repartirRecargo, resumen };
 })();
