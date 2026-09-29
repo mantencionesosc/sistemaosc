@@ -3,7 +3,7 @@
  * Sirve para probar la app antes de conectar la planilla. Nada de esto llega a Google Sheets.
  */
 const Demo = (() => {
-  const KEY = 'osc_demo_db_v9';
+  const KEY = 'osc_demo_db_v10';
   const IMG = {};  // fotos de la demo: solo en memoria (no caben en el almacenamiento del navegador)
 
   function seed() {
@@ -16,7 +16,7 @@ const Demo = (() => {
       horas: '', hh: '', factor: '', cantidad: '', costoUnit: '', recargoPct: '', monto: 0, incluida: true, tipoItemId: '', tipoItem: '' }, x);
     return {
       config: {
-        HH_BASE: 0, IVA_PCT: 19, RECARGO_MATERIALES_PCT: 30,
+        HH_BASE: 0, IVA_PCT: 19, RECARGO_MATERIALES_PCT: 30, MARGEN_CONTRIB_PCT: 3, DESGASTE_MENORES_PCT: 5, DESGASTE_MAYORES_PCT: 10,
         EMPRESA_NOMBRE: 'Mantenciones OSC', EMPRESA_RAZON_SOCIAL: '', EMPRESA_RUT: '',
         EMPRESA_GIRO: '', EMPRESA_DIRECCION: '', EMPRESA_TELEFONO: '', EMPRESA_CORREO: '', EMPRESA_FIRMA: '',
         COT_CONDICIONES: '', COT_INCLUIR_CONDICIONES: 'NO', COT_MO_AGRUPADA: 'NO', COT_DETALLE_COMPRAS: 'NO', COT_DETALLE_MO: 'NO', COT_MOSTRAR_CANTIDAD: 'SI'
@@ -131,7 +131,7 @@ const Demo = (() => {
     saveConfig: ({ values }) => {
       const d = load();
       Object.keys(values).forEach(k => {
-        d.config[k] = ['HH_BASE', 'IVA_PCT', 'RECARGO_MATERIALES_PCT'].includes(k) ? num(values[k]) : String(values[k] ?? '').trim();
+        d.config[k] = ['HH_BASE', 'IVA_PCT', 'RECARGO_MATERIALES_PCT', 'MARGEN_CONTRIB_PCT', 'DESGASTE_MENORES_PCT', 'DESGASTE_MAYORES_PCT'].includes(k) ? num(values[k]) : String(values[k] ?? '').trim();
       });
       return { config: clone(d.config) };
     },
@@ -259,6 +259,23 @@ const Demo = (() => {
     saveCliente: ({ item }) => saveSimple('clientes', 'CLI', item, o => { if (!String(o.razonSocial || '').trim()) throw new Error('El cliente necesita razón social'); }),
     saveSolicitante: ({ item }) => saveSimple('solicitantes', 'SOL', item, o => { if (!String(o.nombre || '').trim()) throw new Error('El solicitante necesita nombre'); }),
     saveUbicacion: ({ item }) => saveSimple('ubicaciones', 'UBI', item, o => { if (!String(o.edificio || '').trim()) throw new Error('La ubicación necesita el lugar'); }),
+    actualizarOTsConfig: ({ nOTs }) => {
+      const d = load(); const c = d.config; const res = [];
+      (nOTs || []).forEach(n => {
+        const o = d.ots.find(x => String(x.nOT) === String(n));
+        if (!o) throw new Error('No existe la OT ' + n);
+        if (o.folioSII || String(o.nOC || '').trim()) throw new Error('La OT ' + n + ' tiene OC o está facturada');
+        const antes = o.herrMenoresPct === '' || o.herrMenoresPct == null;
+        const ls = d.lineas.filter(l => String(l.nOT) === String(n));
+        const t = Calc.totales(ls, num(o.ivaPct || c.IVA_PCT), num(c.RECARGO_MATERIALES_PCT), { menores: antes ? true : Calc.bool(o.herrMenores), menoresPct: num(c.DESGASTE_MENORES_PCT),
+          mayores: Calc.bool(o.herrMayores), mayoresPct: num(c.DESGASTE_MAYORES_PCT), margenPct: num(c.MARGEN_CONTRIB_PCT) });
+        Object.assign(o, { subtotal: t.subtotal, recargoPct: t.recargoPct, recargo: t.recargo, neto: t.neto, iva: t.iva, total: t.total,
+          herrMenores: antes ? true : Calc.bool(o.herrMenores), herrMenoresPct: num(c.DESGASTE_MENORES_PCT), herrMayoresPct: num(c.DESGASTE_MAYORES_PCT),
+          desgaste: t.desgaste, margenPct: t.margenPct, margen: t.margen, ajustado: false, ajusteMotivo: '', actualizada: ahora() });
+        res.push(clone(o));
+      });
+      return { ots: res };
+    },
     saveOT: ({ ot, lineas }) => {
       const d = load();
       const esNueva = !ot.nOT;
@@ -280,12 +297,23 @@ const Demo = (() => {
         r.nOT = nOT; r.fecha = l.fecha || hoy();
         return r;
       });
-      const subtotal = ls.reduce((s, l) => s + (l.incluida ? l.monto : 0), 0);
-      const recargoPct = previa && previa.recargoPct !== '' && previa.recargoPct != null ? num(previa.recargoPct) : num(d.config.RECARGO_MATERIALES_PCT);
-      const recargo = Math.round(subtotal * recargoPct / 100);
-      const neto = subtotal + recargo;
-      const ivaPct = previa && previa.ivaPct !== '' ? num(previa.ivaPct) : num(d.config.IVA_PCT);
-      const iva = Math.round(neto * ivaPct / 100);
+      const pctPrev = (campo, clave) => previa && previa[campo] !== '' && previa[campo] != null ? num(previa[campo]) : num(d.config[clave] ?? (clave === 'DESGASTE_MENORES_PCT' ? 5 : 10));
+      const herrMenores = Calc.bool(ot.herrMenores), herrMayores = Calc.bool(ot.herrMayores);
+      const herrMenoresPct = pctPrev('herrMenoresPct', 'DESGASTE_MENORES_PCT'), herrMayoresPct = pctPrev('herrMayoresPct', 'DESGASTE_MAYORES_PCT');
+      const ajustado = Calc.bool(ot.ajustado);
+      let recargoPct, margenPct, ajusteMotivo = '';
+      if (ajustado) {
+        recargoPct = num(ot.recargoPct); margenPct = num(ot.margenPct); ajusteMotivo = String(ot.ajusteMotivo || '').trim();
+        if (!ajusteMotivo) throw new Error('El ajuste de precio necesita un motivo');
+        if (recargoPct < 0 || margenPct < 0) throw new Error('El precio ajustado no puede quedar bajo el costo');
+      } else if (previa && Calc.bool(previa.ajustado)) { recargoPct = num(d.config.RECARGO_MATERIALES_PCT); margenPct = num(d.config.MARGEN_CONTRIB_PCT); }
+      else {
+        recargoPct = previa && previa.recargoPct !== '' && previa.recargoPct != null ? num(previa.recargoPct) : num(d.config.RECARGO_MATERIALES_PCT);
+        margenPct = previa ? (previa.margenPct === '' || previa.margenPct == null ? 0 : num(previa.margenPct)) : num(d.config.MARGEN_CONTRIB_PCT);
+      }
+      const ivaPct = previa && previa.ivaPct !== '' && previa.ivaPct != null ? num(previa.ivaPct) : num(d.config.IVA_PCT);
+      const t = Calc.totales(ls, ivaPct, recargoPct, { menores: herrMenores, menoresPct: herrMenoresPct, mayores: herrMayores, mayoresPct: herrMayoresPct, margenPct });
+      const { subtotal, recargo, neto, iva, desgaste, margen } = t;
       const o = {
         nOT, fechaInicio: ot.fechaInicio || hoy(), clienteId: cli.id, cliente: cli.nombreCorto || cli.razonSocial,
         solicitanteId: sol ? sol.id : '', solicitante: sol ? sol.nombre : '',
@@ -293,6 +321,7 @@ const Demo = (() => {
         titulo: String(ot.titulo || '').trim(), descripcion: ot.descripcion || '', estado,
         nOC: previa ? previa.nOC : '', folioSII: previa ? previa.folioSII : '',
         neto, ivaPct, iva, total: neto + iva, notas: ot.notas || '', subtotal, recargoPct, recargo,
+        herrMenores, herrMenoresPct, herrMayores, herrMayoresPct, desgaste, margenPct, margen, ajustado, ajusteMotivo,
         creada: previa ? previa.creada : ahora(), actualizada: ahora(),
         detallar: String(ot.detallar || '').split(',').filter(x => d.tiposItem.some(t => t.id === x)).join(',')
       };

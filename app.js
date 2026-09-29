@@ -16,8 +16,8 @@ let DEMO = LS.get('osc_demo') === '1';
 const S = { config: {}, categorias: [], tiposItem: [], unidades: [], tarifario: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [], ordenesCompra: [], facturas: [] };
 const FOTOS = {};   // nOT -> [{...foto, data}] (se cargan al abrir la OT)
 let SYNCED = false;
-const APP_VERSION = '3.2.1';
-const API_REQUERIDA = '3.2';
+const APP_VERSION = '3.4';
+const API_REQUERIDA = '3.4';
 /** OT cerrada: con OC asignada o facturada. Se muestra como informe de solo lectura. */
 const folioTxt = f => 'Folio Nº ' + esc(f);
 let BUSQ_ABIERTA = {};
@@ -116,13 +116,23 @@ const Calc = {
     return Math.round(Calc.num(l.horas) * Calc.num(l.hh) * (Calc.vacio(l.factor) ? 1 : Calc.num(l.factor)));
   },
   subtotal: lineas => lineas.reduce((s, l) => s + (l.incluida !== false ? Calc.montoLinea(l) : 0), 0),
-  // subtotal (costo) + recargo general = neto; + IVA = total
-  totales(lineas, ivaPct, recargoPct = 0) {
-    const subtotal = Calc.subtotal(lineas);
-    const recargo = Math.round(subtotal * Calc.num(recargoPct) / 100);
-    const neto = subtotal + recargo;
+  bool: v => v === true || String(v).toUpperCase() === 'TRUE' || v === 1 || v === '1' || String(v).toUpperCase() === 'SI',
+  // En cadena: costo de líneas + desgaste de herramientas (% de la MO) = subtotal
+  //            + margen de contribución (% del subtotal) + recargo (% de subtotal+margen) = neto; + IVA = total
+  // herr: { menores, menoresPct, mayores, mayoresPct, margenPct }
+  totales(lineas, ivaPct, recargoPct = 0, herr = {}) {
+    const costo = Calc.subtotal(lineas);
+    const baseMO = Calc.subtotal(lineas.filter(l => Calc.tipoDe(l) === 'Mano de obra'));
+    const desgMenores = herr.menores ? Math.round(baseMO * Calc.num(herr.menoresPct) / 100) : 0;
+    const desgMayores = herr.mayores ? Math.round(baseMO * Calc.num(herr.mayoresPct) / 100) : 0;
+    const desgaste = desgMenores + desgMayores;
+    const subtotal = costo + desgaste;
+    const margenPct = Calc.num(herr.margenPct);
+    const margen = Math.round(subtotal * margenPct / 100);
+    const recargo = Math.round((subtotal + margen) * Calc.num(recargoPct) / 100);
+    const neto = subtotal + margen + recargo;
     const iva = Math.round(neto * Calc.num(ivaPct) / 100);
-    return { subtotal, recargoPct: Calc.num(recargoPct), recargo, neto, iva, total: neto + iva };
+    return { costo, baseMO, desgMenores, desgMayores, desgaste, subtotal, margenPct, margen, recargoPct: Calc.num(recargoPct), recargo, neto, iva, total: neto + iva };
   }
 };
 
@@ -342,6 +352,7 @@ function itemOT(o) {
     <div class="ot-bottom">
       <div class="badges">
         <span class="badge b-${slug(et)}">${esc(etapaLabel(et))}</span>
+        ${Calc.bool(o.ajustado) && !otCerrada(o) ? '<span class="badge b-ajuste">✎ Precio ajustado</span>' : ''}
         ${o.nOC ? `<span class="badge b-oc">OC ${esc(o.nOC)}</span>` : ''}
         ${o.folioSII ? `<span class="badge b-folio">${folioTxt(o.folioSII)}</span>` : ''}
       </div>
@@ -391,7 +402,7 @@ function renderEditor(param) {
     if (param === 'nueva') {
       const cls = clientesActivos();
       ED = {
-        ot: { nOT: '', fechaInicio: hoyISO(), clienteId: cls.length === 1 ? cls[0].id : '', solicitanteId: '', ubicacionId: '', titulo: '', descripcion: '', estado: 'Borrador', notas: '', nOC: '', folioSII: '', ivaPct: '', detallar: '' },
+        ot: { nOT: '', fechaInicio: hoyISO(), clienteId: cls.length === 1 ? cls[0].id : '', solicitanteId: '', ubicacionId: '', titulo: '', descripcion: '', estado: 'Borrador', notas: '', nOC: '', folioSII: '', ivaPct: '', detallar: '', herrMenores: true, herrMayores: false },
         lineas: [], dirty: false
       };
     } else {
@@ -463,7 +474,17 @@ function renderEditor(param) {
       ${ro ? '' : `<button class="btn btn-primary btn-full" style="margin-top:12px" id="add-mo">＋ Mano de obra</button>`}
     </div>
 
-    <div class="card"><h2>🧮 Resumen</h2><div id="ed-resumen"></div></div>
+    <div class="card">
+      <h2>🧰 Herramientas y equipos <span class="extra" id="herr-tot"></span></h2>
+      <p class="hint" style="margin:0 0 6px">Desgaste como % de la mano de obra. No se muestra al cliente: se reparte en los montos.</p>
+      <label class="check herr-check"><input type="checkbox" id="f-herr-men" ${Calc.bool(o.herrMenores) ? 'checked' : ''}>
+        <span>Herramientas menores <small>${dec(pctOT(o, 'herrMenoresPct', 'DESGASTE_MENORES_PCT'))}%</small></span><b id="herr-men-m"></b></label>
+      <label class="check herr-check"><input type="checkbox" id="f-herr-may" ${Calc.bool(o.herrMayores) ? 'checked' : ''}>
+        <span>Equipos mayores <small>${dec(pctOT(o, 'herrMayoresPct', 'DESGASTE_MAYORES_PCT'))}% · si el trabajo lo amerita</small></span><b id="herr-may-m"></b></label>
+    </div>
+
+    <div class="card"><h2>🧮 Resumen</h2><div id="ed-resumen"></div>
+      <button class="btn btn-sec btn-full" style="margin-top:12px" id="ed-ajustar" type="button">✎ Ajustar precio de esta OT</button></div>
 
     <div class="card" id="fotos-card"></div>
     <div class="card" id="cot-card"></div>
@@ -496,6 +517,9 @@ function renderEditor(param) {
   $('#f-ubi').addEventListener('change', e => { o.ubicacionId = e.target.value; marcar(); renderEditor(param); });
   const fc = $('#f-cliente');
   if (fc) fc.addEventListener('change', e => { o.clienteId = e.target.value; o.solicitanteId = ''; o.ubicacionId = ''; marcar(); renderEditor(param); });
+  $('#ed-ajustar').onclick = modalAjustePrecio;
+  $('#f-herr-men').addEventListener('change', e => { o.herrMenores = e.target.checked; marcar(); pintarTotales(); });
+  $('#f-herr-may').addEventListener('change', e => { o.herrMayores = e.target.checked; marcar(); pintarTotales(); });
   const es = $('#edit-sol'); if (es) es.onclick = () => modalSolicitante(S.solicitantes.find(s => s.id === o.solicitanteId), () => renderEditor(param));
   const eu = $('#edit-ubi'); if (eu) eu.onclick = () => modalUbicacion(S.ubicaciones.find(u => u.id === o.ubicacionId), () => renderEditor(param));
   const eb = $('#ed-borrador'); if (eb) eb.onclick = () => guardarOT('Borrador');
@@ -592,18 +616,190 @@ function mostrarRespaldo(param) {
 }
 
 const pctOT = (o, campo, clave) => Calc.vacio(o[campo]) ? Calc.num(S.config[clave]) : Calc.num(o[campo]);
-const totalesED = () => Calc.totales(ED.lineas, pctOT(ED.ot, 'ivaPct', 'IVA_PCT'), pctOT(ED.ot, 'recargoPct', 'RECARGO_MATERIALES_PCT'));
+const herrOT = o => ({ menores: Calc.bool(o.herrMenores), menoresPct: pctOT(o, 'herrMenoresPct', 'DESGASTE_MENORES_PCT'),
+  mayores: Calc.bool(o.herrMayores), mayoresPct: pctOT(o, 'herrMayoresPct', 'DESGASTE_MAYORES_PCT') });
+// Margen de contribución: las OT anteriores a la v3.4 no tienen (0) hasta actualizarlas en Config → Revisar OT
+const margenOT = o => !Calc.vacio(o.margenPct) ? Calc.num(o.margenPct) : (o.nOT ? 0 : Calc.num(S.config.MARGEN_CONTRIB_PCT ?? 3));
+const paramsOT = o => Object.assign(herrOT(o), { margenPct: margenOT(o) });
+const totalesOT = (o, lineas) => Calc.totales(lineas, pctOT(o, 'ivaPct', 'IVA_PCT'), pctOT(o, 'recargoPct', 'RECARGO_MATERIALES_PCT'), paramsOT(o));
+const totalesED = () => totalesOT(ED.ot, ED.lineas);
+const pctTxt = x => dec(Math.round(Calc.num(x) * 100) / 100);
+
+const difCfg = (pct, clave) => Math.abs(Calc.num(pct) - Calc.num(S.config[clave])) > 0.001 ? ` <small class="dif-cfg">(Config: ${pctTxt(S.config[clave])}%)</small>` : '';
 
 function pintarTotales() {
   const t = totalesED();
   $('#ed-tot').innerHTML = $('#ed-borrador') ? `Total<br><b>${clp(t.total)}</b>` : `Neto ${clp(t.neto)} · IVA ${clp(t.iva)}<br><b>Total ${clp(t.total)}</b>`;
   const r = $('#ed-resumen');
+  const h = herrOT(ED.ot);
+  const hm = $('#herr-men-m'); if (hm) hm.textContent = clp(t.desgMenores || Math.round(t.baseMO * h.menoresPct / 100));
+  const hM = $('#herr-may-m'); if (hM) hM.textContent = clp(t.desgMayores || Math.round(t.baseMO * h.mayoresPct / 100));
+  const ht = $('#herr-tot'); if (ht) ht.textContent = clp(t.desgaste);
   if (r) r.innerHTML = `
+    ${t.desgaste ? `<div class="res-row"><span>Costo de líneas</span><span>${clp(t.costo)}</span></div>
+      ${t.desgMenores ? `<div class="res-row"><span>Herramientas menores ${dec(h.menoresPct)}% <small>(de la MO)</small></span><span>${clp(t.desgMenores)}</span></div>` : ''}
+      ${t.desgMayores ? `<div class="res-row"><span>Equipos mayores ${dec(h.mayoresPct)}% <small>(de la MO)</small></span><span>${clp(t.desgMayores)}</span></div>` : ''}` : ''}
     <div class="res-row"><span>Subtotal (costo)</span><span>${clp(t.subtotal)}</span></div>
-    <div class="res-row"><span>Recargo ${dec(t.recargoPct)}% <small>(no se muestra al cliente)</small></span><span>${clp(t.recargo)}</span></div>
+    <div class="res-row"><span>Margen de contribución ${pctTxt(t.margenPct)}%${difCfg(t.margenPct, 'MARGEN_CONTRIB_PCT')} <small>(costos fijos)</small></span><span>${clp(t.margen)}</span></div>
+    <div class="res-row"><span>Recargo ${pctTxt(t.recargoPct)}%${difCfg(t.recargoPct, 'RECARGO_MATERIALES_PCT')} <small>(utilidad)</small></span><span>${clp(t.recargo)}</span></div>
     <div class="res-row fuerte"><span>Neto</span><span>${clp(t.neto)}</span></div>
     <div class="res-row"><span>IVA ${dec(pctOT(ED.ot, 'ivaPct', 'IVA_PCT'))}%</span><span>${clp(t.iva)}</span></div>
-    <div class="res-row total"><span>Total</span><span>${clp(t.total)}</span></div>`;
+    <div class="res-row total"><span>Total</span><span>${clp(t.total)}</span></div>
+    <p class="hint" style="margin:8px 0 0">El margen y el recargo no se muestran al cliente: se reparten en los montos.</p>
+    ${Calc.bool(ED.ot.ajustado) ? `<div class="ajuste-banner">✎ <b>Precio ajustado</b> solo en esta OT${ED.ot.ajusteMotivo ? ': ' + esc(ED.ot.ajusteMotivo) : ''}</div>` : ''}`;
+}
+
+// ── Config → Revisar OT: OT abiertas con % distintos a los de Config ─────────
+function diferenciasOT(o) {
+  const c = S.config, d = [];
+  const cfgN = k => Calc.num(c[k]);
+  const distinto = (a, b) => Math.abs(Calc.num(a) - Calc.num(b)) > 0.001;
+  if (Calc.vacio(o.margenPct)) d.push('sin margen de contribución');
+  else if (distinto(o.margenPct, cfgN('MARGEN_CONTRIB_PCT'))) d.push(`margen ${pctTxt(o.margenPct)}% → ${pctTxt(cfgN('MARGEN_CONTRIB_PCT'))}%`);
+  const rec = pctOT(o, 'recargoPct', 'RECARGO_MATERIALES_PCT');
+  if (distinto(rec, cfgN('RECARGO_MATERIALES_PCT'))) d.push(`recargo ${pctTxt(rec)}% → ${pctTxt(cfgN('RECARGO_MATERIALES_PCT'))}%`);
+  if (Calc.vacio(o.herrMenoresPct)) d.push('sin desgaste de herramientas (OT anterior)');
+  else {
+    if (Calc.bool(o.herrMenores) && distinto(o.herrMenoresPct, cfgN('DESGASTE_MENORES_PCT'))) d.push(`herr. menores ${pctTxt(o.herrMenoresPct)}% → ${pctTxt(cfgN('DESGASTE_MENORES_PCT'))}%`);
+    if (Calc.bool(o.herrMayores) && distinto(o.herrMayoresPct, cfgN('DESGASTE_MAYORES_PCT'))) d.push(`equipos mayores ${pctTxt(o.herrMayoresPct)}% → ${pctTxt(cfgN('DESGASTE_MAYORES_PCT'))}%`);
+  }
+  return d;
+}
+// Neto que tendría la OT con los % vigentes de Config (igual que el servidor)
+function netoConConfig(o) {
+  const c = S.config;
+  const ls = S.lineas.filter(l => String(l.nOT) === String(o.nOT));
+  return Calc.totales(ls, pctOT(o, 'ivaPct', 'IVA_PCT'), Calc.num(c.RECARGO_MATERIALES_PCT), {
+    menores: Calc.vacio(o.herrMenoresPct) ? true : Calc.bool(o.herrMenores), menoresPct: Calc.num(c.DESGASTE_MENORES_PCT),
+    mayores: Calc.bool(o.herrMayores), mayoresPct: Calc.num(c.DESGASTE_MAYORES_PCT), margenPct: Calc.num(c.MARGEN_CONTRIB_PCT) }).neto;
+}
+let REV_SEL = null;
+function renderRevisarOT() {
+  const box = $('#revisar-card'); if (!box) return;
+  const abiertas = S.ots.filter(o => ['Borrador', 'Guardada', 'Cotizada'].includes(etapaOT(o)))
+    .map(o => ({ o, dif: diferenciasOT(o) })).filter(x => x.dif.length).sort((a, b) => a.o.nOT - b.o.nOT);
+  const normales = abiertas.filter(x => !Calc.bool(x.o.ajustado)), ajustadas = abiertas.filter(x => Calc.bool(x.o.ajustado));
+  if (!REV_SEL) REV_SEL = new Set(normales.map(x => String(x.o.nOT)));
+  [...REV_SEL].forEach(n => { if (!abiertas.some(x => String(x.o.nOT) === n)) REV_SEL.delete(n); });
+  const fila = ({ o, dif }) => {
+    const nuevo = netoConConfig(o);
+    return `<label class="rev-fila"><input type="checkbox" data-rev="${o.nOT}" ${REV_SEL.has(String(o.nOT)) ? 'checked' : ''}>
+      <div class="rev-body"><b>${otNum(o.nOT)}</b> · ${esc(o.titulo || '(sin título)')} <span class="badge b-${slug(etapaOT(o))}">${esc(etapaLabel(etapaOT(o)))}</span>
+        <div class="hint" style="margin:2px 0 0">${esc(dif.join(' · '))}</div>
+        ${Calc.bool(o.ajustado) ? `<div class="hint" style="margin:2px 0 0">✎ Ajuste: ${esc(o.ajusteMotivo || '')}</div>` : ''}
+        ${etapaOT(o) === 'Cotizada' ? '<div class="hint" style="margin:2px 0 0;color:var(--terra)">Cotizada: si la actualizas, genera una nueva versión de la cotización.</div>' : ''}
+      </div>
+      <div class="rev-montos"><span>${clp(o.neto)}</span><b>→ ${clp(nuevo)}</b></div></label>`;
+  };
+  box.innerHTML = `<h2>🔎 Revisar OT abiertas</h2>
+    <p class="hint" style="margin:0 0 8px">OT en borrador, guardadas o cotizadas cuyos % (margen de contribución, recargo o desgaste) no coinciden con los de Config. Montos en neto: actual → con los % de Config. Las OT con OC o facturadas no se tocan.</p>
+    ${abiertas.length ? `
+      ${normales.map(fila).join('') || '<p class="hint">Todas las OT sin ajuste están al día.</p>'}
+      ${ajustadas.length ? `<div class="sub-h" style="margin-top:12px">Con precio ajustado (no se marcan solas)</div>${ajustadas.map(fila).join('')}` : ''}
+      <button class="btn btn-primary btn-full" style="margin-top:12px" id="rev-ok" ${REV_SEL.size ? '' : 'disabled'}>Actualizar al % actual (${REV_SEL.size})</button>`
+    : '<p class="hint">✓ Todas las OT abiertas usan los % de Config.</p>'}`;
+  box.querySelectorAll('[data-rev]').forEach(c => c.onchange = () => { c.checked ? REV_SEL.add(c.dataset.rev) : REV_SEL.delete(c.dataset.rev); renderRevisarOT(); });
+  const ok = $('#rev-ok');
+  if (ok) ok.onclick = async () => {
+    const nOTs = [...REV_SEL].map(Number).sort((a, b) => a - b);
+    const cot = nOTs.filter(n => etapaOT(S.ots.find(o => Number(o.nOT) === n)) === 'Cotizada');
+    if (!confirm(`¿Actualizar ${nOTs.length} OT a los % de Config?${cot.length ? `\n\n${cot.map(otNum).join(', ')} ya está${cot.length === 1 ? '' : 'n'} cotizada${cot.length === 1 ? '' : 's'}: habrá que generar una nueva versión de la cotización.` : ''}`)) return;
+    ok.disabled = true; toast('Actualizando…');
+    try {
+      const r = await api('actualizarOTsConfig', { nOTs });
+      r.ots.forEach(o => { S.ots = S.ots.filter(x => String(x.nOT) !== String(o.nOT)).concat([o]); });
+      guardarCache(); REV_SEL = null;
+      toast(`✓ ${r.ots.length} OT actualizada${r.ots.length === 1 ? '' : 's'}`, 'ok');
+      renderRevisarOT();
+    } catch (e) { toast('No se pudo: ' + e.message, 'err'); ok.disabled = false; }
+  };
+}
+
+// ── Ajuste de precio de una OT (rebaja pedida por el cliente, etc.) ──────────
+// Se ajusta primero el recargo (utilidad). Si el precio pedido obliga a bajar del costo + margen, se reduce el margen
+// de contribución y se avisa. Nunca bajo el costo.
+function modalAjustePrecio() {
+  const o = ED.ot;
+  const t0 = totalesED();
+  const S0 = t0.subtotal;
+  const mCfg = Calc.num(S.config.MARGEN_CONTRIB_PCT), rCfg = Calc.num(S.config.RECARGO_MATERIALES_PCT);
+  let modo = 'objetivo';
+  let m = t0.margenPct, r = t0.recargoPct;
+  const r6 = x => Math.round(x * 1e6) / 1e6;
+  const cotizada = o.nOT && etapaOT(o) === 'Cotizada';
+  const calcular = () => Calc.totales(ED.lineas, pctOT(o, 'ivaPct', 'IVA_PCT'), r, Object.assign(herrOT(o), { margenPct: m }));
+  const mdl = abrirModal(`
+    <h3>Ajustar precio${o.nOT ? ' · ' + otNum(o.nOT) : ''}<button class="x" data-cerrar>✕</button></h3>
+    <p class="hint" style="margin:0 0 10px">Cambia el precio solo de esta OT. Costo (subtotal): <b>${clp(S0)}</b> · Neto actual: <b>${clp(t0.neto)}</b></p>
+    <div class="seg" id="aj-modo"><button type="button" data-v="objetivo" class="on">🎯 Precio objetivo</button><button type="button" data-v="pct">% Por porcentaje</button></div>
+    <div id="aj-obj">
+      <label for="aj-neto">Neto que se quiere cobrar</label>
+      <input id="aj-neto" inputmode="numeric" placeholder="$" value="${Math.round(t0.neto).toLocaleString('es-CL')}">
+    </div>
+    <div id="aj-pct" class="hidden"><div class="row">
+      <div><label for="aj-m">Margen contribución %</label><input id="aj-m" inputmode="decimal" value="${pctTxt(m)}"></div>
+      <div><label for="aj-r">Recargo (utilidad) %</label><input id="aj-r" inputmode="decimal" value="${pctTxt(r)}"></div>
+    </div></div>
+    <div class="aj-prev" id="aj-prev"></div>
+    <label for="aj-mot">Motivo del ajuste</label>
+    <input id="aj-mot" placeholder="Ej: Rebaja solicitada por jefatura" value="${esc(o.ajusteMotivo || '')}">
+    ${cotizada ? '<p class="hint" style="margin-top:8px">Esta OT ya está cotizada: después de guardar, genera una nueva versión de la cotización.</p>' : ''}
+    <div class="btn-row">
+      ${Calc.bool(o.ajustado) ? '<button class="btn btn-sec" id="aj-quitar">Quitar ajuste</button>' : ''}
+      <button class="btn btn-primary" id="aj-ok">Aplicar</button>
+    </div>`);
+  let error = '';
+  function recalcular() {
+    error = '';
+    if (modo === 'objetivo') {
+      const N = Number(soloDigitos($('#aj-neto').value) || 0);
+      const base = S0 + Math.round(S0 * mCfg / 100);
+      if (!N) error = 'Escribe el neto';
+      else if (N < S0) error = `No se puede cobrar bajo el costo (${clp(S0)}).`;
+      else if (N >= base) { m = mCfg; r = base ? r6((N - base) / base * 100) : 0; }
+      else { r = 0; m = S0 ? r6((N - S0) / S0 * 100) : 0; }
+    } else {
+      m = Calc.num($('#aj-m').value); r = Calc.num($('#aj-r').value);
+      if (m < 0 || r < 0) error = 'Los porcentajes no pueden ser negativos.';
+    }
+    const t = calcular();
+    const dif = t.neto - t0.neto;
+    const bajoMargen = !error && m < mCfg - 0.001;
+    $('#aj-prev').innerHTML = error ? `<div class="aj-alerta">${error}</div>` : `
+      <div class="res-row"><span>Margen de contribución ${pctTxt(m)}%</span><span>${clp(t.margen)}</span></div>
+      <div class="res-row"><span>Recargo (utilidad) ${pctTxt(r)}%</span><span>${clp(t.recargo)}</span></div>
+      <div class="res-row fuerte"><span>Nuevo neto</span><span>${clp(t.neto)}</span></div>
+      <div class="res-row"><span>Total con IVA</span><span>${clp(t.total)}</span></div>
+      <p class="hint" style="margin:6px 0 0">${dif === 0 ? 'Sin cambio.' : (dif < 0 ? 'Rebaja de ' : 'Alza de ') + clp(Math.abs(dif)) + ' en el neto.'}</p>
+      ${bajoMargen ? `<div class="aj-alerta">⚠ Con este precio <b>no cubres los costos fijos completos</b>: el margen de contribución baja de ${pctTxt(mCfg)}% a ${pctTxt(m)}%${r < 0.001 ? ' y no queda utilidad' : ''}.</div>` : ''}
+      ${!bajoMargen && r < rCfg - 0.001 ? `<p class="hint" style="margin:6px 0 0">La rebaja sale de la utilidad: el recargo baja de ${pctTxt(rCfg)}% a ${pctTxt(r)}%. El margen de contribución se mantiene.</p>` : ''}`;
+  }
+  mdl.querySelectorAll('#aj-modo button').forEach(b => b.onclick = () => {
+    modo = b.dataset.v;
+    mdl.querySelectorAll('#aj-modo button').forEach(x => x.classList.toggle('on', x === b));
+    $('#aj-obj').classList.toggle('hidden', modo !== 'objetivo'); $('#aj-pct').classList.toggle('hidden', modo !== 'pct');
+    if (modo === 'pct') { $('#aj-m').value = pctTxt(m); $('#aj-r').value = pctTxt(r); }
+    recalcular();
+  });
+  const ni = $('#aj-neto');
+  ni.addEventListener('input', () => { const d = soloDigitos(ni.value); ni.value = d ? Number(d).toLocaleString('es-CL') : ''; recalcular(); });
+  $('#aj-m').addEventListener('input', recalcular); $('#aj-r').addEventListener('input', recalcular);
+  recalcular();
+  $('#aj-ok').onclick = () => {
+    recalcular();
+    if (error) { toast(error, 'err'); return; }
+    const mot = $('#aj-mot').value.trim();
+    if (!mot) { toast('Escribe el motivo del ajuste', 'err'); $('#aj-mot').focus(); return; }
+    Object.assign(o, { ajustado: true, margenPct: m, recargoPct: r, ajusteMotivo: mot });
+    cerrarModal(); marcar(); pintarTotales();
+    toast('Ajuste aplicado. Guarda la OT para confirmarlo.', 'ok', 3500);
+  };
+  const q = $('#aj-quitar');
+  if (q) q.onclick = () => {
+    Object.assign(o, { ajustado: false, margenPct: mCfg, recargoPct: rCfg, ajusteMotivo: '' });
+    cerrarModal(); marcar(); pintarTotales();
+    toast('Ajuste quitado: vuelve a los % de Config. Guarda la OT.', 'ok', 3500);
+  };
 }
 
 async function guardarOT(estado = 'Guardada') {
@@ -1451,9 +1647,21 @@ function renderConfig(app) {
         <div><label for="v-rec">Recargo general %</label><input id="v-rec" inputmode="decimal" value="${dec(cfg.RECARGO_MATERIALES_PCT ?? 30)}"></div>
         <div><label for="v-iva">IVA %</label><input id="v-iva" inputmode="decimal" value="${dec(cfg.IVA_PCT ?? 19)}"></div>
       </div>
+      <div class="row">
+        <div><label for="v-mc">Margen de contribución %</label><input id="v-mc" inputmode="decimal" value="${dec(cfg.MARGEN_CONTRIB_PCT ?? 3)}"></div>
+        <div></div>
+      </div>
+      <p class="hint">En cadena: <b>costo → + margen de contribución</b> (costos fijos) <b>→ + recargo</b> (utilidad). Ej: $100.000 → +3% = $103.000 → +30% = $133.900.</p>
+      <div class="row">
+        <div><label for="v-hmen">Herramientas menores %</label><input id="v-hmen" inputmode="decimal" value="${dec(cfg.DESGASTE_MENORES_PCT ?? 5)}"></div>
+        <div><label for="v-hmay">Equipos mayores %</label><input id="v-hmay" inputmode="decimal" value="${dec(cfg.DESGASTE_MAYORES_PCT ?? 10)}"></div>
+      </div>
+      <p class="hint">El <b>desgaste de herramientas</b> es un % de la mano de obra de cada OT. Herramientas menores viene marcado en cada OT nueva; equipos mayores se marca cuando el trabajo lo amerita. Se suma al costo antes del recargo.</p>
       <p class="hint">Horas = horas × valor hora de la categoría. Ítems de compra al costo. El <b>recargo general</b> se aplica sobre el neto de cada OT y en la cotización se reparte en los montos (la jefa no lo ve). Cada OT conserva el % con que se creó.</p>
       <button class="btn btn-primary btn-full" style="margin-top:14px" id="v-ok">Guardar valores</button>
     </div>
+
+    <div class="card" id="revisar-card"></div>
 
     <div class="card">
       <h2>🏷 Categorías y valor hora</h2>
@@ -1559,9 +1767,12 @@ function renderConfig(app) {
     if (!e.target.classList.contains('c-vh')) return;
     const d = soloDigitos(e.target.value); e.target.value = d ? Number(d).toLocaleString('es-CL') : '';
   });
+  renderRevisarOT();
   $('#v-ok').onclick = async () => {
-    const values = { IVA_PCT: Calc.num($('#v-iva').value), RECARGO_MATERIALES_PCT: Calc.num($('#v-rec').value) };
-    if (values.IVA_PCT < 0 || values.RECARGO_MATERIALES_PCT < 0) { toast('Los porcentajes no pueden ser negativos', 'err'); return; }
+    const values = { IVA_PCT: Calc.num($('#v-iva').value), RECARGO_MATERIALES_PCT: Calc.num($('#v-rec').value),
+      DESGASTE_MENORES_PCT: Calc.num($('#v-hmen').value), DESGASTE_MAYORES_PCT: Calc.num($('#v-hmay').value),
+      MARGEN_CONTRIB_PCT: Calc.num($('#v-mc').value) };
+    if (Object.values(values).some(v => v < 0)) { toast('Los porcentajes no pueden ser negativos', 'err'); return; }
     await guardarConfig(values);
   };
   $('#q-ok').onclick = () => guardarConfig({
@@ -1699,7 +1910,7 @@ async function guardarConfig(values) {
   toast('Guardando…');
   try {
     const r = await api('saveConfig', { values });
-    S.config = r.config; guardarCache(); toast('✓ Guardado', 'ok'); renderConfig($('#app'));
+    S.config = r.config; guardarCache(); REV_SEL = null; toast('✓ Guardado', 'ok'); renderConfig($('#app'));
   } catch (e) { toast('No se guardó: ' + e.message, 'err'); }
 }
 

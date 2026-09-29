@@ -11,7 +11,7 @@
  *      (Ejecutar como: Yo · Quién tiene acceso: Cualquier usuario).
  */
 
-const VERSION = '3.2';
+const VERSION = '3.4';
 const ESTADOS_COT = ['Vigente', 'Reemplazada', 'Descartada', 'Aprobada'];
 
 // ════════════════════════════════════════════════════════════ ESQUEMA
@@ -59,7 +59,13 @@ const SCHEMA = {
     ['neto', 'Neto'], ['ivaPct', 'IVA %'], ['iva', 'IVA'], ['total', 'Total'],
     ['notas', 'Notas'], ['creada', 'Creada'], ['actualizada', 'Actualizada'],
     ['detallar', 'Detallar en cotización'],  // IDs de tipos de ítem a desglosar, separados por coma
-    ['subtotal', 'Subtotal (costo)'], ['recargoPct', 'Recargo %'], ['recargo', 'Recargo']  // neto = subtotal + recargo
+    ['subtotal', 'Subtotal (costo)'], ['recargoPct', 'Recargo %'], ['recargo', 'Recargo'],  // neto = subtotal + recargo
+    // desde v3.3: desgaste de herramientas = % de la mano de obra; se suma al subtotal (antes del recargo)
+    ['herrMenores', 'Herr. menores'], ['herrMenoresPct', 'Herr. menores %'],
+    ['herrMayores', 'Equipos mayores'], ['herrMayoresPct', 'Equipos mayores %'], ['desgaste', 'Desgaste herramientas'],
+    // desde v3.4: margen de contribución a costos fijos (sobre el subtotal, antes del recargo) y ajuste de precio por OT
+    ['margenPct', 'Margen contribución %'], ['margen', 'Margen contribución'],
+    ['ajustado', 'Precio ajustado'], ['ajusteMotivo', 'Motivo del ajuste']
   ],
   OT_Lineas: [
     ['id', 'ID'], ['nOT', 'N° OT'], ['orden', 'Orden'], ['fecha', 'Fecha'], ['tipo', 'Tipo'],
@@ -111,6 +117,9 @@ const CONFIG_DEFAULTS = [
   ['HH_BASE', 0, '(Ya no se usa desde v2.1: cada categoría tiene su valor hora)'],
   ['IVA_PCT', 19, 'IVA en %'],
   ['RECARGO_MATERIALES_PCT', 30, 'Recargo general en %: se aplica sobre el neto de cada OT y se reparte en las líneas de la cotización'],
+  ['MARGEN_CONTRIB_PCT', 3, 'Margen de contribución a costos fijos, en % sobre el costo (se aplica antes del recargo)'],
+  ['DESGASTE_MENORES_PCT', 5, 'Desgaste de herramientas menores, en % de la mano de obra (marcado por defecto en cada OT nueva)'],
+  ['DESGASTE_MAYORES_PCT', 10, 'Desgaste de equipos mayores, en % de la mano de obra (se marca en la OT cuando el trabajo lo amerita)'],
   ['EMPRESA_NOMBRE', 'Mantenciones OSC', 'Nombre de fantasía'],
   ['EMPRESA_RAZON_SOCIAL', '', 'Razón social (como aparece en el SII)'],
   ['EMPRESA_RUT', '', 'RUT de la empresa'],
@@ -299,6 +308,7 @@ const ACTIONS = {
   saveTarifario: function (r) { return withLock_(function () { return { items: (r.items || []).map(saveTarifa_) }; }); },
   saveCliente: function (r) { return withLock_(function () { return saveSimple_('Clientes', 'CLI', r.item, validarCliente_); }); },
   saveSolicitante: function (r) { return withLock_(function () { return saveSimple_('Solicitantes', 'SOL', r.item, validarSolicitante_); }); },
+  actualizarOTsConfig: function (r) { return withLock_(function () { return actualizarOTsConfig_(r.nOTs); }); },
   saveUbicacion: function (r) { return withLock_(function () { return saveSimple_('Ubicaciones', 'UBI', r.item, validarUbicacion_); }); },
   saveOT: function (r) { return withLock_(function () { return saveOT_(r.ot, r.lineas || []); }); },
   getFotos: function (r) { return getFotos_(r.nOT); },
@@ -344,7 +354,7 @@ function configObj_() {
 function saveConfig_(values) {
   const sh = sheet_('Config');
   const rows = readTable_('Config');
-  const numericas = ['HH_BASE', 'IVA_PCT', 'RECARGO_MATERIALES_PCT'];
+  const numericas = ['HH_BASE', 'IVA_PCT', 'RECARGO_MATERIALES_PCT', 'MARGEN_CONTRIB_PCT', 'DESGASTE_MENORES_PCT', 'DESGASTE_MAYORES_PCT'];
   Object.keys(values).forEach(function (k) {
     if (!/^[A-Z_]+$/.test(k)) throw new Error('Clave inválida: ' + k);
     let v = values[k];
@@ -487,13 +497,28 @@ function saveOT_(ot, lineas) {
   const hoy = today_();
   const lineasOk = lineas.map(function (l, i) { return normalizarLinea_(l, i, nOT, cfg, cats, tipos, hoy, tarifas); });
 
-  // Subtotal al costo + recargo general (congelado en la OT al crearla) = neto
-  const subtotal = lineasOk.reduce(function (s, l) { return s + (l.incluida ? l.monto : 0); }, 0);
-  const recargoPct = previa && previa.recargoPct !== '' && previa.recargoPct != null ? num_(previa.recargoPct) : num_(cfg.RECARGO_MATERIALES_PCT);
-  const recargo = Math.round(subtotal * recargoPct / 100);
-  const neto = subtotal + recargo;
-  const ivaPct = previa && previa.ivaPct !== '' && previa.ivaPct != null ? num_(previa.ivaPct) : num_(cfg.IVA_PCT);
-  const iva = Math.round(neto * ivaPct / 100);
+  // Porcentajes: cada OT conserva los de cuando se creó. Un ajuste de precio (con motivo) los fija solo para esta OT.
+  const pctPrevio_ = function (campo, clave) { return previa && previa[campo] !== '' && previa[campo] != null ? num_(previa[campo]) : num_(cfg[clave]); };
+  const ajustado = bool_(ot.ajustado);
+  let recargoPct, margenPct, ajusteMotivo = '';
+  if (ajustado) {
+    recargoPct = num_(ot.recargoPct); margenPct = num_(ot.margenPct);
+    ajusteMotivo = String(ot.ajusteMotivo || '').trim();
+    if (!ajusteMotivo) throw new Error('El ajuste de precio necesita un motivo');
+    if (recargoPct < 0 || margenPct < 0) throw new Error('El precio ajustado no puede quedar bajo el costo');
+  } else if (previa && bool_(previa.ajustado)) {   // se quitó el ajuste: vuelve a los % vigentes
+    recargoPct = num_(cfg.RECARGO_MATERIALES_PCT); margenPct = num_(cfg.MARGEN_CONTRIB_PCT);
+  } else {
+    recargoPct = pctPrevio_('recargoPct', 'RECARGO_MATERIALES_PCT');
+    // OT creadas antes de la v3.4 no tienen margen: quedan en 0 hasta actualizarlas desde Config → Revisar OT
+    margenPct = previa ? (previa.margenPct === '' || previa.margenPct == null ? 0 : num_(previa.margenPct)) : num_(cfg.MARGEN_CONTRIB_PCT);
+  }
+  const t = calcTotalesOT_(lineasOk, {
+    herrMenores: bool_(ot.herrMenores), herrMayores: bool_(ot.herrMayores),
+    herrMenoresPct: pctPrevio_('herrMenoresPct', 'DESGASTE_MENORES_PCT'), herrMayoresPct: pctPrevio_('herrMayoresPct', 'DESGASTE_MAYORES_PCT'),
+    margenPct: margenPct, recargoPct: recargoPct,
+    ivaPct: previa && previa.ivaPct !== '' && previa.ivaPct != null ? num_(previa.ivaPct) : num_(cfg.IVA_PCT)
+  });
 
   const obj = {
     nOT: nOT,
@@ -509,21 +534,78 @@ function saveOT_(ot, lineas) {
     estado: estado,
     nOC: previa ? previa.nOC : '',
     folioSII: previa ? previa.folioSII : '',
-    neto: neto,
-    ivaPct: ivaPct,
-    iva: iva,
-    total: neto + iva,
+    neto: t.neto,
+    ivaPct: t.ivaPct,
+    iva: t.iva,
+    total: t.total,
     notas: String(ot.notas || ''),
     creada: previa ? previa.creada : now_(),
     actualizada: now_(),
     detallar: String(ot.detallar || '').split(',').map(function (x) { return x.trim(); })
       .filter(function (x) { return x && tipos.some(function (t) { return t.id === x; }); }).join(','),
-    subtotal: subtotal, recargoPct: recargoPct, recargo: recargo
+    subtotal: t.subtotal, recargoPct: t.recargoPct, recargo: t.recargo,
+    herrMenores: t.herrMenores, herrMenoresPct: t.herrMenoresPct, herrMayores: t.herrMayores, herrMayoresPct: t.herrMayoresPct, desgaste: t.desgaste,
+    margenPct: t.margenPct, margen: t.margen, ajustado: ajustado, ajusteMotivo: ajusteMotivo
   };
 
   upsert_('OT', 'nOT', obj);
   replaceLineas_(nOT, lineasOk);
   return { ot: obj, lineas: lineasOk };
+}
+
+/**
+ * Totales de una OT (en cadena):
+ *   costo de líneas + desgaste de herramientas (% de la MO) = subtotal
+ *   + margen de contribución (% del subtotal)                = base
+ *   + recargo (% de la base)                                 = neto;  + IVA = total
+ */
+function calcTotalesOT_(lineas, p) {
+  const incl = function (l) { return l.incluida === true || String(l.incluida).toUpperCase() === 'TRUE'; };
+  const costo = lineas.reduce(function (s, l) { return s + (incl(l) ? num_(l.monto) : 0); }, 0);
+  const baseMO = lineas.reduce(function (s, l) { return s + (incl(l) && l.tipo === 'Mano de obra' ? num_(l.monto) : 0); }, 0);
+  const desgaste = (p.herrMenores ? Math.round(baseMO * p.herrMenoresPct / 100) : 0) + (p.herrMayores ? Math.round(baseMO * p.herrMayoresPct / 100) : 0);
+  const subtotal = costo + desgaste;
+  const margen = Math.round(subtotal * p.margenPct / 100);
+  const recargo = Math.round((subtotal + margen) * p.recargoPct / 100);
+  const neto = subtotal + margen + recargo;
+  const iva = Math.round(neto * p.ivaPct / 100);
+  return { costo: costo, desgaste: desgaste, subtotal: subtotal, margen: margen, recargo: recargo, neto: neto, iva: iva, total: neto + iva,
+    herrMenores: !!p.herrMenores, herrMayores: !!p.herrMayores, herrMenoresPct: p.herrMenoresPct, herrMayoresPct: p.herrMayoresPct,
+    margenPct: p.margenPct, recargoPct: p.recargoPct, ivaPct: p.ivaPct };
+}
+
+/**
+ * Config → Revisar OT: lleva las OT abiertas elegidas a los % vigentes de Config
+ * (margen de contribución, recargo y desgaste; a las OT anteriores a la v3.3 les marca herramientas menores).
+ * Quita cualquier ajuste de precio. No toca OT con OC, facturadas ni anuladas.
+ */
+function actualizarOTsConfig_(nOTs) {
+  if (!nOTs || !nOTs.length) throw new Error('No elegiste OT');
+  const cfg = configObj_();
+  const todas = readTable_('OT');
+  const lineas = readTable_('OT_Lineas');
+  const res = [];
+  nOTs.forEach(function (n) {
+    const o = todas.find(function (x) { return String(x.nOT) === String(n); });
+    if (!o) throw new Error('No existe la OT ' + n);
+    otCerrada_(o);
+    if (o.estado === 'Anulada') throw new Error('La OT ' + n + ' está anulada');
+    const antes3_3 = o.herrMenoresPct === '' || o.herrMenoresPct == null;
+    const t = calcTotalesOT_(lineas.filter(function (l) { return String(l.nOT) === String(n); }), {
+      herrMenores: antes3_3 ? true : bool_(o.herrMenores), herrMayores: bool_(o.herrMayores),
+      herrMenoresPct: num_(cfg.DESGASTE_MENORES_PCT), herrMayoresPct: num_(cfg.DESGASTE_MAYORES_PCT),
+      margenPct: num_(cfg.MARGEN_CONTRIB_PCT), recargoPct: num_(cfg.RECARGO_MATERIALES_PCT),
+      ivaPct: o.ivaPct !== '' && o.ivaPct != null ? num_(o.ivaPct) : num_(cfg.IVA_PCT)
+    });
+    const obj = Object.assign({}, o, {
+      subtotal: t.subtotal, recargoPct: t.recargoPct, recargo: t.recargo, neto: t.neto, iva: t.iva, total: t.total,
+      herrMenores: t.herrMenores, herrMenoresPct: t.herrMenoresPct, herrMayores: t.herrMayores, herrMayoresPct: t.herrMayoresPct, desgaste: t.desgaste,
+      margenPct: t.margenPct, margen: t.margen, ajustado: false, ajusteMotivo: '', actualizada: now_()
+    });
+    upsert_('OT', 'nOT', obj);
+    res.push(obj);
+  });
+  return { ots: res };
 }
 
 function normalizarLinea_(l, i, nOT, cfg, cats, tipos, hoy, tarifas) {
@@ -921,6 +1003,8 @@ function setPago_(r) {
 }
 
 // ════════════════════════════════════════════════════════════ UTILIDADES DE HOJA
+function bool_(v) { return v === true || String(v).toUpperCase() === 'TRUE' || v === 1 || v === '1' || String(v).toUpperCase() === 'SI'; }
+
 function sheet_(name) {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
   if (!sh) throw new Error('Falta la hoja "' + name + '". Ejecuta setup() en Apps Script.');

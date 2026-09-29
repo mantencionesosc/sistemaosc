@@ -3,7 +3,7 @@
 App web para registrar las **órdenes de trabajo (OT)** de Mantenciones OSC desde el celular.
 La fuente de verdad es una **planilla de Google Sheets** y el backend es **Apps Script**.
 
-**Versión 3.2 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
+**Versión 3.4 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
 
 **Incluye también (v3.0):** órdenes de compra, facturación con folio SII, registro de pagos y panel de ventas.
 
@@ -39,10 +39,21 @@ Cada OT tiene dos bloques:
 - *Por horas*: horas × valor hora de la categoría de oficio.
 - *Por cantidad*: cantidad × precio unitario (ej: 81,6 m² × $8.000). El precio sale del **Tarifario** (Config) o se escribe a mano, y queda congelado en la línea. Las unidades (m², m lineal, pulgada, unidad, punto…) se editan en Config.
 
-**Totales**
-- Subtotal (costo) = suma de lo incluido
-- Recargo general (por defecto 30%, en Config) = Subtotal × %
-- Neto = Subtotal + Recargo · IVA = Neto × 19% · Total = Neto + IVA
+**🧰 Herramientas y equipos (v3.3)** — desgaste como % de la mano de obra de la OT
+- *Herramientas menores* (por defecto 5%): viene marcado en cada OT nueva.
+- *Equipos mayores* (por defecto 10%): se marca cuando el trabajo lo amerita.
+- Los % se configuran en Config → Valores de cobro. Cada OT conserva el % con que se creó. Las OT creadas antes de la 3.3 quedan sin desgaste (se puede marcar a mano).
+
+**Totales (en cadena)**
+- Subtotal (costo) = suma de lo incluido + desgaste de herramientas
+- Margen de contribución a costos fijos (por defecto 3%, en Config) = Subtotal × %
+- Recargo general / utilidad (por defecto 30%, en Config) = (Subtotal + Margen) × %
+- Neto = Subtotal + Margen + Recargo · IVA = Neto × 19% · Total = Neto + IVA
+- Ejemplo: $100.000 → +3% = $103.000 → +30% = $133.900 neto.
+
+**Ajustar precio de una OT (v3.4):** en el Resumen de la OT, *✎ Ajustar precio de esta OT*. Por **precio objetivo** (escribes el neto pedido y la app calcula el %) o **por porcentaje**. Pide un motivo y la OT queda marcada *Precio ajustado*. La rebaja sale primero del recargo (utilidad); si el precio obliga a bajar del costo + margen, la app avisa que no se cubren los costos fijos completos. Nunca bajo el costo. *Quitar ajuste* vuelve a los % de Config. Después, genera una nueva versión de la cotización.
+
+**Config → 🔎 Revisar OT abiertas (v3.4):** lista las OT en borrador, guardadas o cotizadas cuyos % (margen, recargo o desgaste) no coinciden con Config, con el neto actual → nuevo. Se marcan y se actualizan juntas. Las OT anteriores a la 3.3/3.4 aparecen como "sin margen" / "sin desgaste". Las OT con precio ajustado aparecen aparte y no se marcan solas. Las OT con OC o facturadas no se tocan.
 
 En la **cotización** el recargo no aparece como línea: se reparte proporcionalmente en cada monto, y la suma coincide exactamente con el neto.
 

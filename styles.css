@@ -397,3 +397,26 @@ hr.sep { border: 0; border-top: 1px solid var(--linea); margin: 14px 0 0; }
 .ed-footer #ed-borrador { min-width: 0; padding-left: 12px; padding-right: 12px; }
 .stepper { margin-bottom: 6px; }
 .ed-footer #ed-borrador ~ #ed-save { min-width: 0; padding-left: 16px; padding-right: 16px; }
+
+/* Herramientas y equipos (v3.3) */
+.herr-check { justify-content: space-between; padding: 10px 0; margin: 0; border-top: 1px solid var(--linea); }
+.herr-check span { flex: 1; }
+.herr-check small { display: block; font-weight: 500; color: var(--gris); font-size: 12.5px; }
+.herr-check b { color: var(--cafe); font-size: 15px; }
+.herr-check input:not(:checked) ~ b { color: var(--gris); font-weight: 500; }
+
+/* Margen de contribución y ajuste de precio (v3.4) */
+.dif-cfg { color: var(--terra); font-weight: 700; }
+.ajuste-banner { margin-top: 10px; padding: 9px 12px; border-radius: 10px; background: var(--ambar-bg); color: #8A5310; font-size: 13.5px; }
+.b-ajuste { background: var(--ambar-bg); color: #8A5310; border: 1px solid #E2B878; }
+.aj-prev { margin: 12px 0 4px; padding: 10px 12px; border-radius: 12px; background: var(--arena); }
+.aj-alerta { margin-top: 8px; padding: 9px 12px; border-radius: 10px; background: #F7E1DC; color: #9A2F1E; font-size: 13.5px; line-height: 1.4; }
+.rev-fila { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--linea); cursor: pointer; }
+.rev-fila input { width: 22px; height: 22px; min-height: 0; margin-top: 2px; accent-color: var(--terra); flex: none; }
+.rev-body { flex: 1; min-width: 0; font-size: 14.5px; }
+.rev-body .badge { font-size: 11px; padding: 2px 7px; margin-left: 4px; }
+.rev-montos { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; font-size: 13px; color: var(--gris); }
+.rev-montos b { color: var(--cafe); font-size: 14px; }
+.rev-fila { font-weight: 400; color: var(--cafe); margin: 0; }
+.rev-body .hint { font-weight: 400; font-size: 12.5px; line-height: 1.35; }
+.rev-montos span { font-weight: 400; }

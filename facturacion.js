@@ -611,8 +611,12 @@ function renderInformeOT(app, o, lineas) {
 
     <div class="card inf">
       <h2>🧮 Resumen</h2>
+      ${Calc.num(o.desgaste) ? `<div class="res-row"><span>Costo de líneas</span><span>${clp(sub - Calc.num(o.desgaste))}</span></div>
+        <div class="res-row"><span>Desgaste de herramientas <small>(${[Calc.bool(o.herrMenores) ? 'menores ' + dec(o.herrMenoresPct) + '%' : '', Calc.bool(o.herrMayores) ? 'mayores ' + dec(o.herrMayoresPct) + '%' : ''].filter(Boolean).join(' + ')} de la MO)</small></span><span>${clp(o.desgaste)}</span></div>` : ''}
       <div class="res-row"><span>Subtotal (costo)</span><span>${clp(sub)}</span></div>
-      <div class="res-row"><span>Recargo ${dec(o.recargoPct || 0)}% <small>(interno)</small></span><span>${clp(recargo)}</span></div>
+      ${Calc.num(o.margen) ? `<div class="res-row"><span>Margen de contribución ${pctTxt(o.margenPct)}% <small>(costos fijos)</small></span><span>${clp(o.margen)}</span></div>` : ''}
+      <div class="res-row"><span>Recargo ${pctTxt(o.recargoPct || 0)}% <small>(utilidad, interno)</small></span><span>${clp(recargo)}</span></div>
+      ${Calc.bool(o.ajustado) ? `<div class="ajuste-banner">✎ <b>Precio ajustado</b>${o.ajusteMotivo ? ': ' + esc(o.ajusteMotivo) : ''}</div>` : ''}
       <div class="res-row fuerte"><span>Neto</span><span>${clp(o.neto)}</span></div>
       <div class="res-row"><span>IVA ${dec(o.ivaPct || 19)}%</span><span>${clp(o.iva)}</span></div>
       <div class="res-row total"><span>Total</span><span>${clp(o.total)}</span></div>
