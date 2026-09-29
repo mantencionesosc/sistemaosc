@@ -16,7 +16,7 @@ let DEMO = LS.get('osc_demo') === '1';
 const S = { config: {}, categorias: [], tiposItem: [], unidades: [], tarifario: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [], ordenesCompra: [], facturas: [] };
 const FOTOS = {};   // nOT -> [{...foto, data}] (se cargan al abrir la OT)
 let SYNCED = false;
-const APP_VERSION = '3.2';
+const APP_VERSION = '3.2.1';
 const API_REQUERIDA = '3.2';
 /** OT cerrada: con OC asignada o facturada. Se muestra como informe de solo lectura. */
 const folioTxt = f => 'Folio Nº ' + esc(f);
@@ -284,7 +284,9 @@ function renderOTs(app) {
   if (!filtros.some(f => f[0] === FILTRO)) FILTRO = 'Guardada';
   const q = norm(BUSQ);
   let lista = S.ots.slice().sort((a, b) => b.nOT - a.nOT);
-  if (FILTRO !== 'todas') lista = lista.filter(o => etapaOT(o) === FILTRO);
+  // Al seleccionar para cotizar solo se muestran las OT cotizables (guardadas o ya cotizadas); nunca borradores
+  if (SEL) lista = lista.filter(o => ['Guardada', 'Cotizada'].includes(etapaOT(o)));
+  else if (FILTRO !== 'todas') lista = lista.filter(o => etapaOT(o) === FILTRO);
   if (q) lista = lista.filter(o => norm([otNum(o.nOT), o.nOT, o.titulo, o.ubicacion, o.solicitante, o.cliente, o.nOC, o.folioSII].join(' ')).includes(q));
 
   const sinHH = S.categorias.some(c => c.activa !== false && !(Calc.num(c.valorHora) > 0)) && (SYNCED || DEMO);
@@ -293,10 +295,10 @@ function renderOTs(app) {
     ${sinHH ? `<div class="warn-banner">⚠ Hay categorías sin <b>valor hora</b>. Sus líneas salen en $0. <a href="#/config">Ir a Config →</a></div>` : ''}
     ${tituloSeccion('Órdenes de trabajo (OT)', { key: 'ots', id: 'busq', value: BUSQ, placeholder: 'Buscar OT, título, lugar, solicitante…' })}
     ${SEL ? '' : resumenPorCotizar()}
-    <div class="chips">${filtros.map(([k, t]) => `<button class="chip ${FILTRO === k ? 'on' : ''}" data-f="${k}">${t}${k !== 'todas' && cuenta[k] ? ` <span class="chip-n">${cuenta[k]}</span>` : ''}</button>`).join('')}</div>
-    ${SEL ? `<div class="sel-banner">Toca las OT que quieres cotizar juntas (mismo cliente).</div>`
+    ${SEL ? '' : `<div class="chips">${filtros.map(([k, t]) => `<button class="chip ${FILTRO === k ? 'on' : ''}" data-f="${k}">${t}${k !== 'todas' && cuenta[k] ? ` <span class="chip-n">${cuenta[k]}</span>` : ''}</button>`).join('')}</div>`}
+    ${SEL ? `<div class="sel-banner">Toca las OT que quieres cotizar juntas (mismo cliente). Solo aparecen OT guardadas o cotizadas: los borradores no se pueden cotizar.</div>`
           : (S.ots.length > 1 ? `<button class="btn btn-sec btn-sm" id="btn-sel" style="margin-bottom:10px">☑ Seleccionar para cotizar juntas</button>` : '')}
-    <div id="ot-list" style="padding-bottom:${SEL ? 90 : 64}px">${lista.length ? lista.map(itemOT).join('') : `<div class="empty"><span class="big">📋</span>${S.ots.length ? 'No hay OT con este filtro.' : 'Aún no hay órdenes de trabajo.<br>Crea la primera con el botón de abajo.'}</div>`}</div>
+    <div id="ot-list" style="padding-bottom:${SEL ? 90 : 64}px">${lista.length ? lista.map(itemOT).join('') : `<div class="empty"><span class="big">📋</span>${S.ots.length ? (SEL ? 'No hay OT guardadas para cotizar.' : 'No hay OT con este filtro.') : 'Aún no hay órdenes de trabajo.<br>Crea la primera con el botón de abajo.'}</div>`}</div>
     ${SEL ? `<div class="sel-bar"><div class="inner">
         <button class="btn btn-sec" id="sel-cancel">Cancelar</button>
         <button class="btn btn-primary" id="sel-ok" ${SEL.size ? '' : 'disabled'}>📄 Cotizar juntas (${SEL.size})</button>
