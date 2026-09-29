@@ -3,11 +3,29 @@
 App web para registrar las **órdenes de trabajo (OT)** de Mantenciones OSC desde el celular.
 La fuente de verdad es una **planilla de Google Sheets** y el backend es **Apps Script**.
 
-**Versión 3.1.2 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
+**Versión 3.2 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
 
 **Incluye también (v3.0):** órdenes de compra, facturación con folio SII, registro de pagos y panel de ventas.
 
 ---
+
+## Etapas de la OT (v3.2)
+La etapa se calcula sola según el avance; ya no hay que elegir Pendiente / En curso / Terminada.
+
+| Etapa | Cuándo |
+|---|---|
+| **Borrador** | Se guardó con *Guardar borrador*. Puede quedar incompleta (sin título). No se puede cotizar. |
+| **Guardada** | Se guardó con *Guardar OT* y aún no tiene cotización vigente o aprobada. |
+| **Cotizada** | Tiene una cotización vigente o aprobada. Si la cotización se descarta, vuelve a Guardada. |
+| **Consolidada c/OC** | Tiene OC asignada. Queda bloqueada. |
+| **Terminada c/F.SII** | Tiene factura registrada. |
+| **Anulada** | Botón *Anular OT* al final de la OT (se puede reactivar). |
+
+- La lista de OT siempre abre en **Guardadas**. Cada filtro muestra cuántas OT tiene.
+- Arriba de la lista, la tarjeta **Por cotizar** suma las OT guardadas sin cotizar, por cliente (neto y bruto). Los borradores no suman.
+- **Respaldo automático:** lo que se escribe en una OT se respalda en el teléfono. Si se corta la señal o se cierra la app sin guardar, al volver a abrir esa OT aparece *Recuperar / Descartar*. El respaldo es solo de ese teléfono.
+- **Ubicación:** tiene *Lugar* y *Detalle o nota adicional*. Desde la OT se puede crear (＋) o editar (✏️) la ubicación o el solicitante sin salir.
+- **Cantidades:** los ítems de compra y la mano de obra por cantidad tienen botones − / ＋ (de a 1).
 
 ## Cálculo
 

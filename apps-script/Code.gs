@@ -11,7 +11,7 @@
  *      (Ejecutar como: Yo · Quién tiene acceso: Cualquier usuario).
  */
 
-const VERSION = '3.1.1';
+const VERSION = '3.2';
 const ESTADOS_COT = ['Vigente', 'Reemplazada', 'Descartada', 'Aprobada'];
 
 // ════════════════════════════════════════════════════════════ ESQUEMA
@@ -46,7 +46,7 @@ const SCHEMA = {
     ['unidad', 'Unidad / Depto.'], ['correo', 'Correo'], ['telefono', 'Teléfono'], ['activo', 'Activo']
   ],
   Ubicaciones: [
-    ['id', 'ID'], ['clienteId', 'Cliente ID'], ['edificio', 'Edificio'], ['detalle', 'Detalle / Sector'],
+    ['id', 'ID'], ['clienteId', 'Cliente ID'], ['edificio', 'Lugar'], ['detalle', 'Detalle o nota adicional'],
     ['activo', 'Activo']
   ],
   OT: [
@@ -136,7 +136,9 @@ const TIPOS_ITEM_DEFAULT = ['Material', 'Insumo', 'Arriendo de herramienta', 'Fl
 const UNIDADES_DEFAULT = ['m²', 'm lineal', 'pulgada', 'unidad', 'punto'];
 const TIPOS_LINEA = ['Compra', 'Tiempo de gestión', 'Mano de obra'];
 
-const ESTADOS_OT = ['Pendiente', 'En curso', 'Terminada', 'Anulada'];
+// Desde v3.2 el estado guardado es solo Borrador / Guardada / Anulada; la etapa (cotizada, con OC, facturada) se calcula.
+const ESTADOS_OT = ['Borrador', 'Guardada', 'Anulada'];
+const ESTADOS_OT_ANTIGUOS = ['Pendiente', 'En curso', 'Terminada'];  // se convierten en Guardada
 const TZ = 'America/Santiago';
 
 // ════════════════════════════════════════════════════════════ SETUP
@@ -185,6 +187,15 @@ function setup() {
     const hhBase = num_(configObj_().HH_BASE);
     readTable_('Categorias').forEach(function (c, i) {
       if (c.valorHora === '' || c.valorHora == null) catSh.getRange(i + 2, vhCol).setValue(Math.round(hhBase * (num_(c.factor) || 1)));
+    });
+  }
+
+  // Migración v3.2: estados antiguos de OT (Pendiente / En curso / Terminada) → Guardada
+  {
+    const otSh = ss.getSheetByName('OT');
+    const eCol = SCHEMA.OT.findIndex(function (c) { return c[0] === 'estado'; }) + 1;
+    readTable_('OT').forEach(function (o, i) {
+      if (ESTADOS_OT_ANTIGUOS.indexOf(o.estado) !== -1 || o.estado === '') otSh.getRange(i + 2, eCol).setValue('Guardada');
     });
   }
 
@@ -423,7 +434,7 @@ function validarSolicitante_(o) {
 }
 function validarUbicacion_(o) {
   o.edificio = String(o.edificio || '').trim();
-  if (!o.edificio) throw new Error('La ubicación necesita el nombre del edificio');
+  if (!o.edificio) throw new Error('La ubicación necesita el lugar');
   if (!o.clienteId) throw new Error('La ubicación debe pertenecer a un cliente');
 }
 
@@ -452,11 +463,14 @@ function saveOT_(ot, lineas) {
   }
 
   // Validaciones de cabecera
-  const titulo = String(ot.titulo || '').trim();
-  if (!titulo) throw new Error('La OT necesita un título (ej: "Cambio de lavamanos")');
-  if (!ot.clienteId) throw new Error('Selecciona un cliente');
-  const estado = ot.estado || 'Pendiente';
+  let estado = ot.estado || 'Guardada';
+  if (ESTADOS_OT_ANTIGUOS.indexOf(estado) !== -1) estado = 'Guardada';
   if (ESTADOS_OT.indexOf(estado) === -1) throw new Error('Estado inválido: ' + estado);
+  // Una OT que ya se guardó no vuelve a ser borrador
+  if (estado === 'Borrador' && previa && previa.estado && previa.estado !== 'Borrador') estado = previa.estado === 'Anulada' ? 'Anulada' : 'Guardada';
+  const titulo = String(ot.titulo || '').trim();
+  if (!titulo && estado !== 'Borrador') throw new Error('La OT necesita un título (ej: "Cambio de lavamanos")');
+  if (!ot.clienteId) throw new Error('Selecciona un cliente');
 
   const clientes = readTable_('Clientes');
   const cli = clientes.find(function (c) { return c.id === ot.clienteId; });
@@ -700,6 +714,10 @@ function saveCotizacion_(r) {
   const clienteId = otsRows[0].clienteId;
   if (otsRows.some(function (o) { return o.clienteId !== clienteId; })) throw new Error('Todas las OT de una cotización deben ser del mismo cliente');
   otsRows.forEach(otCerrada_);  // una OT con OC o facturada ya no se vuelve a cotizar
+  otsRows.forEach(function (o) {
+    if (o.estado === 'Borrador') throw new Error('La OT ' + o.nOT + ' es un borrador: guárdala antes de cotizarla');
+    if (o.estado === 'Anulada') throw new Error('La OT ' + o.nOT + ' está anulada');
+  });
 
   const todas = readTable_('Cotizaciones');
   const numero = String(r.numero || '').trim();

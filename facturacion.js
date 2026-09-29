@@ -400,7 +400,7 @@ function datosPanel() {
   const facPeriodo = facs.filter(f => enRango(f.fecha, rango));
   const cobradas = facs.filter(f => f.estadoPago === 'Pagada' && enRango(f.fechaPago, rango));
   const porCobrar = facs.filter(f => f.estadoPago !== 'Pagada');
-  const ots = S.ots.filter(o => porCli(o) && o.estado !== 'Anulada' && enRango(o.fechaInicio, rango));
+  const ots = S.ots.filter(o => porCli(o) && otReal(o) && enRango(o.fechaInicio, rango));
   const cotsVig = gruposCot().map(g => g.ultima).filter(c => estadoCot(c) === 'Vigente' && !ocsDeCot(c).length
     && (!cli || (c.clienteId || (S.ots.find(o => otsDeCot(c).includes(Number(o.nOT))) || {}).clienteId) === cli));
   const ocsSinFac = S.ordenesCompra.filter(o => porCli(o) && !o.folio);
@@ -416,7 +416,7 @@ function datosPanel() {
     meses.push({ clave, etiqueta: MESES[d.getMonth()] + (d.getMonth() === 0 || i === 5 ? ' ' + String(d.getFullYear()).slice(2) : ''), neto: sumar(fsM, 'neto'), iva: sumar(fsM, 'iva'), n: fsM.length });
   }
   const estados = {};
-  ots.forEach(o => { estados[o.estado] = (estados[o.estado] || 0) + 1; });
+  ots.forEach(o => { const e = etapaLabel(etapaOT(o)); estados[e] = (estados[e] || 0) + 1; });
   return {
     rango, facPeriodo, cobradas, porCobrar, ots, estados, cotsVig, ocsSinFac, meses,
     fact: { neto: sumar(facPeriodo, 'neto'), iva: sumar(facPeriodo, 'iva'), total: sumar(facPeriodo, 'total') },
@@ -522,7 +522,7 @@ async function descargarResumenPDF(d) {
     const filas = d.ots.slice().sort((a, b) => String(a.fechaInicio).localeCompare(String(b.fechaInicio)) || a.nOT - b.nOT).map(o => {
       const cots = cotsDeOT(o.nOT).filter(c => !['Reemplazada', 'Descartada'].includes(estadoCot(c)));
       return { fecha: fechaCorta(o.fechaInicio), ot: otNum(o.nOT), titulo: o.titulo, cot: [...new Set(cots.map(claveCot))].join(', '),
-        oc: String(o.nOC || ''), folio: String(o.folioSII || ''), estado: o.estado, neto: Calc.num(o.neto) };
+        oc: String(o.nOC || ''), folio: String(o.folioSII || ''), estado: (e => ({ OC: 'Con OC', Facturada: 'Facturada' }[e] || etapaLabel(e)))(etapaOT(o)), neto: Calc.num(o.neto) };
     });
     const doc = Cotizacion.resumen({
       cfg: S.config, logo, titulo: 'Resumen de trabajos y ventas',
@@ -566,7 +566,7 @@ function renderInformeOT(app, o, lineas) {
     </div>
 
     <div class="card inf">
-      <div class="inf-eyebrow">Orden de trabajo · ${esc(o.estado)}</div>
+      <div class="inf-eyebrow">Orden de trabajo · ${esc(etapaLabel(etapaOT(o)))}</div>
       <h1 class="inf-tit">${esc(o.titulo)}</h1>
       ${o.descripcion ? `<p class="inf-desc">${esc(o.descripcion)}</p>` : ''}
       <dl class="inf-dl">

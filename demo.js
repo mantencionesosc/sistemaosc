@@ -3,7 +3,7 @@
  * Sirve para probar la app antes de conectar la planilla. Nada de esto llega a Google Sheets.
  */
 const Demo = (() => {
-  const KEY = 'osc_demo_db_v8';
+  const KEY = 'osc_demo_db_v9';
   const IMG = {};  // fotos de la demo: solo en memoria (no caben en el almacenamiento del navegador)
 
   function seed() {
@@ -67,19 +67,24 @@ const Demo = (() => {
       ots: [
         { nOT: 1, fechaInicio: hoy, clienteId: 'CLI-1', cliente: 'UdeC', solicitanteId: 'SOL-1', solicitante: 'Jefa de ejemplo',
           ubicacionId: 'UBI-1', ubicacion: 'Edificio de ejemplo — Baño 2° piso', titulo: 'Cambio de lavamanos',
-          descripcion: 'La jefa pide cambiar el lavamanos del baño del 2° piso.', estado: 'En curso',
+          descripcion: 'La jefa pide cambiar el lavamanos del baño del 2° piso.', estado: 'Guardada',
           nOC: '', folioSII: '', neto: 159120, ivaPct: 19, iva: 30233, total: 189353, notas: '', creada: hoy, actualizada: hoy, detallar: '',
           subtotal: 122400, recargoPct: 30, recargo: 36720 },
         { nOT: 2, fechaInicio: hoy, clienteId: 'CLI-1', cliente: 'UdeC', solicitanteId: 'SOL-2', solicitante: 'Encargado de ejemplo',
           ubicacionId: 'UBI-2', ubicacion: 'Biblioteca — Sala de lectura', titulo: 'Cambio de enchufes',
-          descripcion: 'Reemplazo de 6 enchufes dañados en la sala de lectura.', estado: 'Pendiente',
+          descripcion: 'Reemplazo de 6 enchufes dañados en la sala de lectura.', estado: 'Guardada',
           nOC: '', folioSII: '', neto: 87100, ivaPct: 19, iva: 16549, total: 103649, notas: '', creada: hoy, actualizada: hoy, detallar: '',
           subtotal: 67000, recargoPct: 30, recargo: 20100 },
         { nOT: 3, fechaInicio: mesAnt, clienteId: 'CLI-1', cliente: 'UdeC', solicitanteId: 'SOL-1', solicitante: 'Jefa de ejemplo',
           ubicacionId: 'UBI-1', ubicacion: 'Edificio de ejemplo — Baño 2° piso', titulo: 'Reparación de puerta',
-          descripcion: 'Cambio de bisagras y ajuste de puerta.', estado: 'Terminada',
+          descripcion: 'Cambio de bisagras y ajuste de puerta.', estado: 'Guardada',
           nOC: '4500000001', folioSII: '101', neto: 61100, ivaPct: 19, iva: 11609, total: 72709, notas: '', creada: mesAnt, actualizada: mesAnt, detallar: '',
-          subtotal: 47000, recargoPct: 30, recargo: 14100 }
+          subtotal: 47000, recargoPct: 30, recargo: 14100 },
+        { nOT: 4, fechaInicio: hoy, clienteId: 'CLI-1', cliente: 'UdeC', solicitanteId: 'SOL-2', solicitante: 'Encargado de ejemplo',
+          ubicacionId: 'UBI-2', ubicacion: 'Biblioteca — Sala de lectura', titulo: 'Revisión de filtración',
+          descripcion: 'Mancha de humedad en el cielo; falta ir a ver.', estado: 'Borrador',
+          nOC: '', folioSII: '', neto: 0, ivaPct: 19, iva: 0, total: 0, notas: '', creada: hoy, actualizada: hoy, detallar: '',
+          subtotal: 0, recargoPct: 30, recargo: 0 }
       ],
       lineas: [
         L('a', 1, 'Compra', { tipoItemId: 'TIP-1', tipoItem: 'Material', descripcion: 'Lavamanos loza blanco (Sodimac)', cantidad: 1, costoUnit: 45000, recargoPct: 0, monto: 45000 }),
@@ -166,6 +171,7 @@ const Demo = (() => {
       if (+r.version !== maxV + 1) throw new Error('Alguien más generó ' + r.numero + ' al mismo tiempo. Sincroniza y vuelve a generar.');
       mismas.forEach(c => { if (!c.estado || c.estado === 'Vigente') c.estado = 'Reemplazada'; });
       const ots = (r.ots || []).map(Number);
+      ots.forEach(n => { const x = d.ots.find(o => Number(o.nOT) === n); if (x && ['Borrador', 'Anulada'].includes(x.estado)) throw new Error('La OT ' + n + (x.estado === 'Borrador' ? ' es un borrador: guárdala antes de cotizarla' : ' está anulada')); });
       const o = { id: r.numero + '-v' + r.version, nOT: ots.length === 1 ? ots[0] : '', version: +r.version, fecha: ahora(), neto: num(r.neto), total: num(r.total),
         pdfUrl: '', fileId: '', numero: r.numero, ots: ots.join(','), estado: 'Vigente', clienteId: '', solicitanteId: r.solicitanteId || '', iva: num(r.iva) };
       d.cotizaciones.push(o);
@@ -252,14 +258,17 @@ const Demo = (() => {
     },
     saveCliente: ({ item }) => saveSimple('clientes', 'CLI', item, o => { if (!String(o.razonSocial || '').trim()) throw new Error('El cliente necesita razón social'); }),
     saveSolicitante: ({ item }) => saveSimple('solicitantes', 'SOL', item, o => { if (!String(o.nombre || '').trim()) throw new Error('El solicitante necesita nombre'); }),
-    saveUbicacion: ({ item }) => saveSimple('ubicaciones', 'UBI', item, o => { if (!String(o.edificio || '').trim()) throw new Error('La ubicación necesita el nombre del edificio'); }),
+    saveUbicacion: ({ item }) => saveSimple('ubicaciones', 'UBI', item, o => { if (!String(o.edificio || '').trim()) throw new Error('La ubicación necesita el lugar'); }),
     saveOT: ({ ot, lineas }) => {
       const d = load();
       const esNueva = !ot.nOT;
       const previa = esNueva ? null : d.ots.find(o => String(o.nOT) === String(ot.nOT));
       if (!esNueva && !previa) throw new Error('No existe la OT ' + ot.nOT);
       if (previa && (previa.folioSII || String(previa.nOC || '').trim())) throw new Error('La OT tiene OC o está facturada y no se puede modificar');
-      if (!String(ot.titulo || '').trim()) throw new Error('La OT necesita un título (ej: "Cambio de lavamanos")');
+      let estado = ot.estado || 'Guardada';
+      if (['Pendiente', 'En curso', 'Terminada'].includes(estado)) estado = 'Guardada';
+      if (estado === 'Borrador' && previa && previa.estado && previa.estado !== 'Borrador') estado = previa.estado === 'Anulada' ? 'Anulada' : 'Guardada';
+      if (estado !== 'Borrador' && !String(ot.titulo || '').trim()) throw new Error('La OT necesita un título (ej: "Cambio de lavamanos")');
       const cli = d.clientes.find(c => c.id === ot.clienteId);
       if (!cli) throw new Error('Selecciona un cliente');
       const sol = d.solicitantes.find(s => s.id === ot.solicitanteId);
@@ -281,7 +290,7 @@ const Demo = (() => {
         nOT, fechaInicio: ot.fechaInicio || hoy(), clienteId: cli.id, cliente: cli.nombreCorto || cli.razonSocial,
         solicitanteId: sol ? sol.id : '', solicitante: sol ? sol.nombre : '',
         ubicacionId: ubi ? ubi.id : '', ubicacion: ubi ? ubi.edificio + (ubi.detalle ? ' — ' + ubi.detalle : '') : '',
-        titulo: ot.titulo.trim(), descripcion: ot.descripcion || '', estado: ot.estado || 'Pendiente',
+        titulo: String(ot.titulo || '').trim(), descripcion: ot.descripcion || '', estado,
         nOC: previa ? previa.nOC : '', folioSII: previa ? previa.folioSII : '',
         neto, ivaPct, iva, total: neto + iva, notas: ot.notas || '', subtotal, recargoPct, recargo,
         creada: previa ? previa.creada : ahora(), actualizada: ahora(),

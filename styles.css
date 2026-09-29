@@ -368,3 +368,32 @@ hr.sep { border: 0; border-top: 1px solid var(--linea); margin: 14px 0 0; }
 .sec-head h1 { margin: 0; font-size: 20px; font-weight: 800; color: var(--cafe); letter-spacing: -.2px; }
 .sec-head .lupa { background: var(--blanco); border: 1.5px solid var(--linea); border-radius: 10px; width: 40px; height: 40px; font-size: 17px; cursor: pointer; color: var(--cafe); flex: none; }
 .sec-head .lupa.on { background: var(--ambar-bg); border-color: var(--terra); }
+
+/* Etapas de la OT (v3.2) */
+.ot-item.e-borrador { border-left-color: var(--gris); border-left-style: dashed; }
+.ot-item.e-guardada { border-left-color: var(--naranjo); }
+.ot-item.e-cotizada { border-left-color: var(--azul); }
+.ot-item.e-oc { border-left-color: #5D3C85; }
+.ot-item.e-facturada { border-left-color: var(--verde); }
+.b-borrador { background: #EEE8E2; color: var(--cafe); border: 1px dashed var(--gris); }
+.b-guardada { background: var(--ambar-bg); color: #8A5310; }
+.b-cotizada { background: var(--azul-bg); color: var(--azul); }
+.b-facturada { background: var(--verde-bg); color: var(--verde); }
+.chip-n { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: rgba(0,0,0,.08); font-size: 12px; line-height: 18px; text-align: center; }
+.chip.on .chip-n { background: rgba(255,255,255,.25); }
+.ed-head .badge { flex: none; }
+
+/* Tarjeta "Por cotizar" */
+.rc-card { padding: 14px 16px; }
+.rc-tit { font-weight: 800; color: var(--cafe); font-size: 15px; margin-bottom: 4px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.rc-tit .hint { margin: 0; font-weight: 500; font-size: 12px; }
+.rc-fila { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--linea); cursor: pointer; }
+.rc-fila:first-of-type { border-top: 0; }
+.rc-cli { display: flex; flex-direction: column; min-width: 0; }
+.rc-cli .hint { margin: 2px 0 0; font-size: 12px; }
+.rc-montos { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; font-size: 13px; color: var(--gris); }
+.rc-montos b { color: var(--cafe); font-size: 15px; }
+.rc-total { border-top: 1.5px solid var(--cafe); cursor: default; }
+.ed-footer #ed-borrador { min-width: 0; padding-left: 12px; padding-right: 12px; }
+.stepper { margin-bottom: 6px; }
+.ed-footer #ed-borrador ~ #ed-save { min-width: 0; padding-left: 16px; padding-right: 16px; }

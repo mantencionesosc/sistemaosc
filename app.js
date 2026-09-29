@@ -1,5 +1,5 @@
 /* Mantenciones OSC — App web (v2: OT, gestión de compras, fotos, cotización PDF, Clientes, Config)
- * Fuente de verdad: Google Sheets vía Apps Script (Web App). 
+ * Fuente de verdad: Google Sheets vía Apps Script (Web App).
  */
 
 // ════════════════════════════════════════════════════════ ALMACENAMIENTO LOCAL
@@ -16,8 +16,8 @@ let DEMO = LS.get('osc_demo') === '1';
 const S = { config: {}, categorias: [], tiposItem: [], unidades: [], tarifario: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [], ordenesCompra: [], facturas: [] };
 const FOTOS = {};   // nOT -> [{...foto, data}] (se cargan al abrir la OT)
 let SYNCED = false;
-const APP_VERSION = '3.1.2';
-const API_REQUERIDA = '3.1.1';
+const APP_VERSION = '3.2';
+const API_REQUERIDA = '3.2';
 /** OT cerrada: con OC asignada o facturada. Se muestra como informe de solo lectura. */
 const folioTxt = f => 'Folio Nº ' + esc(f);
 let BUSQ_ABIERTA = {};
@@ -138,7 +138,20 @@ const slug = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 const $ = sel => document.querySelector(sel);
 
-const ESTADOS = ['Pendiente', 'En curso', 'Terminada', 'Anulada'];
+// Etapa de la OT: se calcula sola según su avance (desde v3.2)
+const ETAPAS = [
+  ['Borrador', 'Borrador', 'Borrador'], ['Guardada', 'Guardada', 'Guardadas'], ['Cotizada', 'Cotizada', 'Cotizadas'],
+  ['OC', 'Consolidada c/OC', 'Consolidadas c/OC'], ['Facturada', 'Terminada c/F.SII', 'Terminadas c/F.SII'], ['Anulada', 'Anulada', 'Anuladas']];
+const etapaLabel = k => (ETAPAS.find(e => e[0] === k) || [k, k])[1];
+function etapaOT(o) {
+  if (o.estado === 'Anulada') return 'Anulada';
+  if (o.estado === 'Borrador') return 'Borrador';
+  if (String(o.folioSII || '').trim()) return 'Facturada';
+  if (String(o.nOC || '').trim()) return 'OC';
+  if (cotsDeOT(o.nOT).some(c => !['Reemplazada', 'Descartada'].includes(estadoCot(c)))) return 'Cotizada';
+  return 'Guardada';
+}
+const otReal = o => !['Anulada', 'Borrador'].includes(o.estado);
 const ICONOS_CAT = { 'gestion de compras': '🛒', 'mantenciones (varios)': '🧰', 'electricidad': '⚡', 'muebleria': '🪑', 'carpinteria': '🪚', 'gasfiteria': '🚰' };
 const iconoCat = nombre => ICONOS_CAT[norm(nombre)] || '🔧';
 
@@ -216,7 +229,7 @@ function actualizarEstado(err) {
   const st = $('#sync-status');
   if (err) { st.textContent = '⚠ ' + err; return; }
   if (!DEMO && (!API_URL || !TOKEN)) { st.textContent = 'Sin conectar'; return; }
-  const activas = S.ots.filter(o => o.estado !== 'Anulada').length;
+  const activas = S.ots.filter(otReal).length;
   st.textContent = (SYNCED ? 'Sincronizado' : 'Datos guardados') + ' · ' + activas + ' OT';
 }
 
@@ -230,7 +243,7 @@ function ruta() { return (location.hash || '#/ots').replace(/^#\/?/, '').split('
 window.addEventListener('hashchange', () => {
   const nueva = location.hash;
   if (ED && ED.dirty && nueva !== '#/ot/' + (ED.ot.nOT || 'nueva')) {
-    if (!confirm('Tienes cambios sin guardar en esta OT. ¿Salir sin guardar?')) {
+    if (!confirm('Tienes cambios sin guardar en esta OT. ¿Salir igual?\n\nQuedan respaldados en este teléfono y podrás recuperarlos al volver a abrirla.')) {
       history.replaceState(null, '', RUTA_ACTUAL);
       return;
     }
@@ -261,24 +274,26 @@ function render() {
 }
 
 // ════════════════════════════════════════════════════════ LISTA DE OT
-let FILTRO = LS.get('osc_filtro', 'activas');
+let FILTRO = 'Guardada';  // siempre parte en OT guardadas
 let SEL = null;  // Set de N° OT seleccionadas para cotizar juntas (null = modo normal)
 let BUSQ = '';
 
 function renderOTs(app) {
-  const filtros = [['activas', 'Activas'], ['Pendiente', 'Pendientes'], ['En curso', 'En curso'], ['Terminada', 'Terminadas'], ['Anulada', 'Anuladas'], ['todas', 'Todas']];
+  const cuenta = {}; S.ots.forEach(o => { const e = etapaOT(o); cuenta[e] = (cuenta[e] || 0) + 1; });
+  const filtros = ETAPAS.map(e => [e[0], e[2]]).concat([['todas', 'Todas']]);
+  if (!filtros.some(f => f[0] === FILTRO)) FILTRO = 'Guardada';
   const q = norm(BUSQ);
   let lista = S.ots.slice().sort((a, b) => b.nOT - a.nOT);
-  if (FILTRO === 'activas') lista = lista.filter(o => o.estado !== 'Anulada');
-  else if (FILTRO !== 'todas') lista = lista.filter(o => o.estado === FILTRO);
+  if (FILTRO !== 'todas') lista = lista.filter(o => etapaOT(o) === FILTRO);
   if (q) lista = lista.filter(o => norm([otNum(o.nOT), o.nOT, o.titulo, o.ubicacion, o.solicitante, o.cliente, o.nOC, o.folioSII].join(' ')).includes(q));
 
   const sinHH = S.categorias.some(c => c.activa !== false && !(Calc.num(c.valorHora) > 0)) && (SYNCED || DEMO);
   app.innerHTML = `
     ${noConectado()}
     ${sinHH ? `<div class="warn-banner">⚠ Hay categorías sin <b>valor hora</b>. Sus líneas salen en $0. <a href="#/config">Ir a Config →</a></div>` : ''}
-    ${tituloSeccion('Órdenes de trabajo (OT)', { key: 'ots', id: 'busq', value: BUSQ, placeholder: 'Buscar OT, título, edificio, solicitante…' })}
-    <div class="chips">${filtros.map(([k, t]) => `<button class="chip ${FILTRO === k ? 'on' : ''}" data-f="${k}">${t}</button>`).join('')}</div>
+    ${tituloSeccion('Órdenes de trabajo (OT)', { key: 'ots', id: 'busq', value: BUSQ, placeholder: 'Buscar OT, título, lugar, solicitante…' })}
+    ${SEL ? '' : resumenPorCotizar()}
+    <div class="chips">${filtros.map(([k, t]) => `<button class="chip ${FILTRO === k ? 'on' : ''}" data-f="${k}">${t}${k !== 'todas' && cuenta[k] ? ` <span class="chip-n">${cuenta[k]}</span>` : ''}</button>`).join('')}</div>
     ${SEL ? `<div class="sel-banner">Toca las OT que quieres cotizar juntas (mismo cliente).</div>`
           : (S.ots.length > 1 ? `<button class="btn btn-sec btn-sm" id="btn-sel" style="margin-bottom:10px">☑ Seleccionar para cotizar juntas</button>` : '')}
     <div id="ot-list" style="padding-bottom:${SEL ? 90 : 64}px">${lista.length ? lista.map(itemOT).join('') : `<div class="empty"><span class="big">📋</span>${S.ots.length ? 'No hay OT con este filtro.' : 'Aún no hay órdenes de trabajo.<br>Crea la primera con el botón de abajo.'}</div>`}</div>
@@ -288,7 +303,8 @@ function renderOTs(app) {
       </div></div>` : `<button class="fab" id="btn-nueva">＋ Nueva OT</button>`}`;
   activarLupa(app, 'ots', () => { BUSQ = ''; }, () => renderOTs(app), 'busq');
   if ($('#busq')) $('#busq').addEventListener('input', e => { BUSQ = e.target.value; BUSQ_ABIERTA.ots = true; const pos = e.target.selectionStart; renderOTs(app); const b = $('#busq'); b.focus(); b.setSelectionRange(pos, pos); });
-  app.querySelectorAll('.chip').forEach(c => c.onclick = () => { FILTRO = c.dataset.f; LS.set('osc_filtro', FILTRO); renderOTs(app); });
+  app.querySelectorAll('.chip').forEach(c => c.onclick = () => { FILTRO = c.dataset.f; renderOTs(app); });
+  app.querySelectorAll('[data-rc-cli]').forEach(el => el.onclick = () => { FILTRO = 'Guardada'; renderOTs(app); });
   if (!SEL) {
     $('#btn-nueva').onclick = () => { location.hash = '#/ot/nueva'; };
     const bs = $('#btn-sel'); if (bs) bs.onclick = () => { SEL = new Set(); renderOTs(app); };
@@ -299,6 +315,7 @@ function renderOTs(app) {
     const n = Number(el.dataset.n);
     const o = S.ots.find(x => Number(x.nOT) === n);
     if (o.estado === 'Anulada') { toast('Una OT anulada no se puede cotizar', 'err'); return; }
+    if (o.estado === 'Borrador') { toast(otNum(o.nOT) + ' es un borrador: guárdala primero para cotizarla', 'err'); return; }
     if (otCerrada(o)) { toast(otNum(o.nOT) + ' ya tiene OC: no se puede volver a cotizar', 'err'); return; }
     if (SEL.has(n)) SEL.delete(n);
     else {
@@ -315,13 +332,14 @@ function renderOTs(app) {
 function itemOT(o) {
   const nLin = S.lineas.filter(l => String(l.nOT) === String(o.nOT)).length;
   const sel = SEL && SEL.has(Number(o.nOT));
-  return `<a class="ot-item e-${slug(o.estado)} ${sel ? 'sel' : ''}" href="#/ot/${o.nOT}" data-n="${o.nOT}">
+  const et = etapaOT(o);
+  return `<a class="ot-item e-${slug(et)} ${sel ? 'sel' : ''}" href="#/ot/${o.nOT}" data-n="${o.nOT}">
     <div class="ot-top"><span class="ot-num">${SEL ? `<span class="selbox">${sel ? '☑' : '☐'}</span> ` : ''}${otNum(o.nOT)}</span><span>${fechaCorta(o.fechaInicio)}</span></div>
-    <div class="ot-tit">${esc(o.titulo)}</div>
+    <div class="ot-tit">${esc(o.titulo) || '<span class="hint">(sin título)</span>'}</div>
     <div class="ot-meta">${esc([o.ubicacion, o.solicitante].filter(Boolean).join(' · ') || o.cliente)}${(() => { const nf = S.fotos.filter(f => String(f.nOT) === String(o.nOT)).length, nc = cotsDeOT(o.nOT).filter(c => !['Reemplazada', 'Descartada'].includes(estadoCot(c))); return (nf ? ' · 📷 ' + nf : '') + (nc.length ? ' · 📄 ' + nc.map(c => c.numero || 'v' + c.version).join(', ') : ''); })()}</div>
     <div class="ot-bottom">
       <div class="badges">
-        <span class="badge b-${slug(o.estado)}">${esc(o.estado)}</span>
+        <span class="badge b-${slug(et)}">${esc(etapaLabel(et))}</span>
         ${o.nOC ? `<span class="badge b-oc">OC ${esc(o.nOC)}</span>` : ''}
         ${o.folioSII ? `<span class="badge b-folio">${folioTxt(o.folioSII)}</span>` : ''}
       </div>
@@ -329,6 +347,32 @@ function itemOT(o) {
     </div>
   </a>`;
 }
+
+// Tarjeta: OT guardadas que aún no se cotizan, por cliente
+function resumenPorCotizar() {
+  const pend = S.ots.filter(o => etapaOT(o) === 'Guardada');
+  const borr = S.ots.filter(o => o.estado === 'Borrador').length;
+  if (!pend.length && !borr) return '';
+  const grupos = {};
+  pend.forEach(o => { (grupos[o.clienteId] = grupos[o.clienteId] || []).push(o); });
+  const nombre = id => { const c = S.clientes.find(x => x.id === id); return c ? (c.nombreCorto || c.razonSocial) : '(sin cliente)'; };
+  const filas = Object.keys(grupos).sort((a, b) => nombre(a).localeCompare(nombre(b))).map(id => {
+    const os = grupos[id].sort((a, b) => a.nOT - b.nOT);
+    const nums = os.map(o => otNum(o.nOT)).join(', ');
+    return `<div class="rc-fila" data-rc-cli="${esc(id)}">
+      <div class="rc-cli"><b>${esc(nombre(id))}</b><span class="hint">${os.length} OT · ${esc(nums)}</span></div>
+      <div class="rc-montos"><span>Neto ${clp(sumarOT(os, 'neto'))}</span><b>Bruto ${clp(sumarOT(os, 'total'))}</b></div></div>`;
+  }).join('');
+  const varios = Object.keys(grupos).length > 1;
+  return `<div class="card rc-card">
+    <div class="rc-tit">Por cotizar <span class="hint">OT guardadas sin cotización</span></div>
+    ${filas || '<p class="hint" style="margin:6px 0 0">No hay OT guardadas pendientes de cotizar.</p>'}
+    ${varios ? `<div class="rc-fila rc-total"><div class="rc-cli"><b>Total</b><span class="hint">${pend.length} OT</span></div>
+      <div class="rc-montos"><span>Neto ${clp(sumarOT(pend, 'neto'))}</span><b>Bruto ${clp(sumarOT(pend, 'total'))}</b></div></div>` : ''}
+    ${borr ? `<p class="hint" style="margin:8px 0 0">+ ${borr} OT en borrador (no se suma${borr === 1 ? '' : 'n'} hasta guardarla${borr === 1 ? '' : 's'}).</p>` : ''}
+  </div>`;
+}
+const sumarOT = (os, campo) => os.reduce((s, o) => s + Calc.num(o[campo]), 0);
 
 function noConectado() {
   if (DEMO || (API_URL && TOKEN)) return '';
@@ -345,7 +389,7 @@ function renderEditor(param) {
     if (param === 'nueva') {
       const cls = clientesActivos();
       ED = {
-        ot: { nOT: '', fechaInicio: hoyISO(), clienteId: cls.length === 1 ? cls[0].id : '', solicitanteId: '', ubicacionId: '', titulo: '', descripcion: '', estado: 'Pendiente', notas: '', nOC: '', folioSII: '', ivaPct: '', detallar: '' },
+        ot: { nOT: '', fechaInicio: hoyISO(), clienteId: cls.length === 1 ? cls[0].id : '', solicitanteId: '', ubicacionId: '', titulo: '', descripcion: '', estado: 'Borrador', notas: '', nOC: '', folioSII: '', ivaPct: '', detallar: '' },
         lineas: [], dirty: false
       };
     } else {
@@ -364,14 +408,16 @@ function renderEditor(param) {
   const cls = clientesActivos();
   const sols = S.solicitantes.filter(s => s.clienteId === o.clienteId && (s.activo !== false || s.id === o.solicitanteId));
   const ubis = S.ubicaciones.filter(u => u.clienteId === o.clienteId && (u.activo !== false || u.id === o.ubicacionId));
+  const esBorr = !o.nOT || o.estado === 'Borrador';
 
   app.innerHTML = `
     <div class="ed-head">
       <button class="back" id="ed-back" aria-label="Volver">←</button>
       <h2>${o.nOT ? otNum(o.nOT) : 'Nueva OT'}</h2>
+      ${o.estado === 'Borrador' || !o.nOT ? '<span class="badge b-borrador">Borrador</span>' : o.estado === 'Anulada' ? '<span class="badge b-anulada">Anulada</span>' : ''}
       <span class="dirty ${ED.dirty ? '' : 'hidden'}" id="ed-dirty">Sin guardar</span>
     </div>
-    ${ro ? `<div class="readonly-banner">🧾 Facturada con <b>${folioTxt(o.folioSII)}</b>. Solo lectura.</div>` : ''}
+    <div id="ed-respaldo"></div>
 
     <div class="card">
       <h2>👤 Cliente</h2>
@@ -385,13 +431,15 @@ function renderEditor(param) {
       <label for="f-sol">Solicitante</label>
       <div class="select-add">
         <select id="f-sol" ${ro || !o.clienteId ? 'disabled' : ''}><option value="">—</option>${sols.map(s => `<option value="${esc(s.id)}" ${s.id === o.solicitanteId ? 'selected' : ''}>${esc(s.nombre)}${s.unidad ? ' · ' + esc(s.unidad) : ''}</option>`).join('')}</select>
-        ${ro ? '' : `<button class="btn btn-sec" id="add-sol" type="button" title="Nuevo solicitante" ${!o.clienteId ? 'disabled' : ''}>＋</button>`}
+        ${o.solicitanteId ? `<button class="btn btn-sec" id="edit-sol" type="button" title="Editar solicitante">✏️</button>` : ''}
+        <button class="btn btn-sec" id="add-sol" type="button" title="Nuevo solicitante" ${!o.clienteId ? 'disabled' : ''}>＋</button>
       </div>
 
       <label for="f-ubi">Ubicación</label>
       <div class="select-add">
         <select id="f-ubi" ${ro || !o.clienteId ? 'disabled' : ''}><option value="">—</option>${ubis.map(u => `<option value="${esc(u.id)}" ${u.id === o.ubicacionId ? 'selected' : ''}>${esc(u.edificio)}${u.detalle ? ' — ' + esc(u.detalle) : ''}</option>`).join('')}</select>
-        ${ro ? '' : `<button class="btn btn-sec" id="add-ubi" type="button" title="Nueva ubicación" ${!o.clienteId ? 'disabled' : ''}>＋</button>`}
+        ${o.ubicacionId ? `<button class="btn btn-sec" id="edit-ubi" type="button" title="Editar ubicación">✏️</button>` : ''}
+        <button class="btn btn-sec" id="add-ubi" type="button" title="Nueva ubicación" ${!o.clienteId ? 'disabled' : ''}>＋</button>
       </div>
     </div>
 
@@ -403,8 +451,6 @@ function renderEditor(param) {
       <label for="f-desc">Detalle del pedido</label>
       <textarea id="f-desc" placeholder="Ej: Desinstalación e instalación de lavamanos en baño del segundo piso" ${ro ? 'readonly' : ''}>${esc(o.descripcion)}</textarea>
 
-      <label>Estado del trabajo</label>
-      <div class="seg" id="f-estado">${ESTADOS.map(e => `<button type="button" data-v="${e}" class="${o.estado === e ? 'on' : ''}" ${ro ? 'disabled' : ''}>${e}</button>`).join('')}</div>
     </div>
 
     ${bloqueCompras(ro)}
@@ -423,12 +469,16 @@ function renderEditor(param) {
     <div class="card">
       <label for="f-notas">Notas internas</label>
       <textarea id="f-notas" placeholder="Solo para ustedes, no sale en la cotización" ${ro ? 'readonly' : ''}>${esc(o.notas)}</textarea>
-      ${o.nOC || o.folioSII ? `<p class="hint" style="margin-top:10px">${o.nOC ? 'OC: <b>' + esc(o.nOC) + '</b>' : ''} ${o.folioSII ? ' · <b>' + folioTxt(o.folioSII) + '</b>' : ''}</p>` : ''}
     </div>
+    ${o.nOT && o.estado !== 'Borrador' ? `<div style="text-align:center;margin:4px 0 90px">${o.estado === 'Anulada'
+      ? '<button class="btn btn-sec btn-sm" id="ed-reactivar">↺ Reactivar OT</button>'
+      : '<button class="btn btn-sec btn-sm" id="ed-anular" style="color:var(--rojo, #A33)">Anular OT</button>'}</div>` : ''}
 
     <div class="ed-footer"><div class="inner">
       <div class="tot" id="ed-tot"></div>
-      ${ro ? '' : `<button class="btn btn-primary" id="ed-save" ${ED.dirty ? '' : 'disabled'}>Guardar</button>`}
+      ${esBorr ? `<button class="btn btn-sec" id="ed-borrador" ${ED.dirty || !o.nOT ? '' : 'disabled'}>Guardar borrador</button>
+        <button class="btn btn-primary" id="ed-save">Guardar OT</button>`
+      : `<button class="btn btn-primary" id="ed-save" ${ED.dirty ? '' : 'disabled'}>Guardar</button>`}
     </div></div>`;
 
   pintarTotales();
@@ -440,21 +490,23 @@ function renderEditor(param) {
 
   const bind = (id, campo, ev = 'input') => $(id).addEventListener(ev, e => { o[campo] = e.target.value; marcar(); });
   bind('#f-titulo', 'titulo'); bind('#f-fecha', 'fechaInicio', 'change'); bind('#f-desc', 'descripcion'); bind('#f-notas', 'notas');
-  $('#f-sol').addEventListener('change', e => { o.solicitanteId = e.target.value; marcar(); });
-  $('#f-ubi').addEventListener('change', e => { o.ubicacionId = e.target.value; marcar(); });
+  $('#f-sol').addEventListener('change', e => { o.solicitanteId = e.target.value; marcar(); renderEditor(param); });
+  $('#f-ubi').addEventListener('change', e => { o.ubicacionId = e.target.value; marcar(); renderEditor(param); });
   const fc = $('#f-cliente');
   if (fc) fc.addEventListener('change', e => { o.clienteId = e.target.value; o.solicitanteId = ''; o.ubicacionId = ''; marcar(); renderEditor(param); });
-  $('#f-estado').querySelectorAll('button').forEach(b => b.onclick = () => {
-    o.estado = b.dataset.v; marcar();
-    $('#f-estado').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
-  });
+  const es = $('#edit-sol'); if (es) es.onclick = () => modalSolicitante(S.solicitantes.find(s => s.id === o.solicitanteId), () => renderEditor(param));
+  const eu = $('#edit-ubi'); if (eu) eu.onclick = () => modalUbicacion(S.ubicaciones.find(u => u.id === o.ubicacionId), () => renderEditor(param));
+  const eb = $('#ed-borrador'); if (eb) eb.onclick = () => guardarOT('Borrador');
+  const an = $('#ed-anular'); if (an) an.onclick = () => { if (confirm('¿Anular ' + otNum(o.nOT) + '? Queda en el filtro Anuladas y no se puede cotizar. Se puede reactivar después.')) guardarOT('Anulada'); };
+  const re = $('#ed-reactivar'); if (re) re.onclick = () => guardarOT('Guardada');
+  mostrarRespaldo(param);
   $('#add-sol').onclick = () => modalSolicitante({ clienteId: o.clienteId }, s => { o.solicitanteId = s.id; marcar(); renderEditor(param); });
   $('#add-ubi').onclick = () => modalUbicacion({ clienteId: o.clienteId }, u => { o.ubicacionId = u.id; marcar(); renderEditor(param); });
   $('#add-mo').onclick = () => abrirLinea(-1, false, 'Mano de obra');
   $('#add-compra').onclick = () => abrirLinea(-1, false, 'Compra');
   $('#add-tiempo').onclick = () => abrirLinea(-1, false, 'Tiempo de gestión');
   app.querySelectorAll('.linea').forEach(el => el.onclick = () => abrirLinea(+el.dataset.i));
-  $('#ed-save').onclick = guardarOT;
+  $('#ed-save').onclick = () => guardarOT(o.estado === 'Anulada' ? 'Anulada' : 'Guardada');
 }
 
 // Líneas de un tipo, con su índice en ED.lineas
@@ -501,6 +553,40 @@ function marcar() {
   ED.dirty = true;
   const d = $('#ed-dirty'); if (d) d.classList.remove('hidden');
   const b = $('#ed-save'); if (b) b.disabled = false;
+  const bb = $('#ed-borrador'); if (bb) bb.disabled = false;
+  guardarRespaldo();
+}
+
+// ── Respaldo automático en el teléfono (por si se corta la señal o se cierra la app)
+const RESP_KEY = 'osc_respaldo_ot';
+const claveED = () => String(ED && ED.ot.nOT || 'nueva');
+function leerRespaldos() { try { return JSON.parse(localStorage.getItem(RESP_KEY) || '{}') || {}; } catch (e) { return {}; } }
+function escribirRespaldos(r) { try { localStorage.setItem(RESP_KEY, JSON.stringify(r)); } catch (e) { } }
+let respTimer = null;
+function guardarRespaldo() {
+  clearTimeout(respTimer);
+  respTimer = setTimeout(() => {
+    if (!ED || !ED.dirty) return;
+    const r = leerRespaldos();
+    r[claveED()] = { ts: Date.now(), ot: ED.ot, lineas: ED.lineas, base: ED.ot.actualizada || '' };
+    escribirRespaldos(r);
+  }, 400);
+}
+function borrarRespaldo(clave) { const r = leerRespaldos(); if (r[clave]) { delete r[clave]; escribirRespaldos(r); } }
+function mostrarRespaldo(param) {
+  const box = $('#ed-respaldo'); if (!box || ED.dirty) return;
+  const r = leerRespaldos()[String(param)];
+  if (!r) return;
+  const hace = new Date(r.ts).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const cambioOtro = r.base && ED.ot.actualizada && String(r.base) !== String(ED.ot.actualizada);
+  box.innerHTML = `<div class="warn-banner">💾 Hay cambios sin guardar en este teléfono (${hace}).${cambioOtro ? ' <b>Ojo:</b> la OT se modificó después en la planilla.' : ''}
+    <div class="btn-row" style="margin-top:8px"><button class="btn btn-sec btn-sm" id="resp-no">Descartar</button><button class="btn btn-primary btn-sm" id="resp-si">Recuperar</button></div></div>`;
+  $('#resp-no').onclick = () => { borrarRespaldo(String(param)); box.innerHTML = ''; };
+  $('#resp-si').onclick = () => {
+    ED.ot = Object.assign({}, ED.ot, r.ot, { nOC: ED.ot.nOC, folioSII: ED.ot.folioSII, estado: ED.ot.estado || r.ot.estado });
+    ED.lineas = r.lineas || [];
+    ED.dirty = true; renderEditor(param); marcar();
+  };
 }
 
 const pctOT = (o, campo, clave) => Calc.vacio(o[campo]) ? Calc.num(S.config[clave]) : Calc.num(o[campo]);
@@ -508,7 +594,7 @@ const totalesED = () => Calc.totales(ED.lineas, pctOT(ED.ot, 'ivaPct', 'IVA_PCT'
 
 function pintarTotales() {
   const t = totalesED();
-  $('#ed-tot').innerHTML = `Neto ${clp(t.neto)} · IVA ${clp(t.iva)}<br><b>Total ${clp(t.total)}</b>`;
+  $('#ed-tot').innerHTML = $('#ed-borrador') ? `Total<br><b>${clp(t.total)}</b>` : `Neto ${clp(t.neto)} · IVA ${clp(t.iva)}<br><b>Total ${clp(t.total)}</b>`;
   const r = $('#ed-resumen');
   if (r) r.innerHTML = `
     <div class="res-row"><span>Subtotal (costo)</span><span>${clp(t.subtotal)}</span></div>
@@ -518,27 +604,40 @@ function pintarTotales() {
     <div class="res-row total"><span>Total</span><span>${clp(t.total)}</span></div>`;
 }
 
-async function guardarOT() {
+async function guardarOT(estado = 'Guardada') {
   const o = ED.ot;
-  if (!String(o.titulo || '').trim()) { toast('Escribe qué pidió el cliente (título)', 'err'); $('#f-titulo').focus(); return; }
+  const borrador = estado === 'Borrador';
   if (!o.clienteId) { toast('Selecciona un cliente', 'err'); return; }
-  const btn = $('#ed-save'); btn.disabled = true;
-  toast('Guardando…');
+  if (!borrador && !String(o.titulo || '').trim()) { toast('Escribe qué pidió el cliente (título)', 'err'); const t = $('#f-titulo'); if (t) t.focus(); return; }
+  const btns = ['#ed-save', '#ed-borrador'].map(s => $(s)).filter(Boolean); btns.forEach(b => b.disabled = true);
+  const clave = claveED();
+  toast(borrador ? 'Guardando borrador…' : 'Guardando…');
   try {
     const ordenadas = TIPOS_LINEA.flatMap(t => ED.lineas.filter(l => Calc.tipoDe(l) === t));
-    const r = await api('saveOT', { ot: o, lineas: ordenadas });
+    const r = await api('saveOT', { ot: Object.assign({}, o, { estado }), lineas: ordenadas });
+    borrarRespaldo(clave);
     S.ots = S.ots.filter(x => String(x.nOT) !== String(r.ot.nOT)).concat([r.ot]);
     S.lineas = S.lineas.filter(x => String(x.nOT) !== String(r.ot.nOT)).concat(r.lineas);
     guardarCache();
     const eraNueva = !o.nOT;
     ED = null;
-    toast('✓ ' + otNum(r.ot.nOT) + (eraNueva ? ' creada' : ' guardada'), 'ok');
+    toast('✓ ' + otNum(r.ot.nOT) + (borrador ? ' guardada como borrador' : estado === 'Anulada' ? ' anulada' : eraNueva || o.estado === 'Borrador' ? ' creada' : ' guardada'), 'ok');
     actualizarEstado();
+    FILTRO = borrador ? 'Borrador' : estado === 'Anulada' ? 'Anulada' : FILTRO === 'Borrador' || FILTRO === 'Anulada' ? 'Guardada' : FILTRO;
     location.hash = '#/ots';  // vuelve a la lista de OT
   } catch (e) {
     toast('No se guardó: ' + e.message, 'err');
-    btn.disabled = false;
+    btns.forEach(b => b.disabled = false);
   }
+}
+
+// Botones − / ＋ de cantidad (de a 1; con decimales se mantienen, ej. 81,6 → 82,6)
+function stepperCant(l, preview) {
+  const ci = $('#l-cant'); if (!ci) return;
+  const setC = c => { l.cantidad = Math.round(c * 100) / 100; ci.value = dec(l.cantidad); preview(); };
+  $('#c-menos').onclick = () => { const x = Calc.num(l.cantidad); if (x > 1) setC(Math.max(1, x - 1)); };
+  $('#c-mas').onclick = () => setC(Calc.num(l.cantidad) + 1);
+  ci.addEventListener('input', () => { l.cantidad = Calc.num(ci.value); preview(); });
 }
 
 // ── Modal de línea ──────────────────────────────────
@@ -595,22 +694,26 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
         <div class="cat-grid" id="l-cats">${catsLista.map(c => `<button type="button" class="cat-btn ${c.id === l.categoriaId ? 'on' : ''}" data-id="${esc(c.id)}" ${ro ? 'disabled' : ''}>${iconoCat(c.nombre)} ${esc(c.nombre)}${porCant() ? '' : `<small>${clp(c.valorHora)} / h</small>`}</button>`).join('')}</div>` : ''}
       <label for="l-desc">${compra ? '¿Qué se compró o cotizó?' : tiempo ? '¿Qué gestión se hizo?' : '¿Qué se hizo?'}</label>
       <textarea id="l-desc" placeholder="${compra ? 'Ej: Lavamanos loza blanco (Sodimac)' : tiempo ? 'Ej: Cotizar en 2 ferreterías' : 'Ej: Desinstalación de lavamanos'}" ${ro ? 'readonly' : ''}>${esc(l.descripcion)}</textarea>
-      ${porCant() ? `<div class="row">
-          <div><label for="l-cant">Cantidad</label><input id="l-cant" inputmode="decimal" value="${dec(l.cantidad)}" ${ro ? 'readonly' : ''}></div>
+      ${porCant() ? `<label for="l-cant">Cantidad</label><div class="stepper">
+          <button type="button" id="c-menos" ${ro ? 'disabled' : ''}>−</button>
+          <input id="l-cant" inputmode="decimal" value="${dec(l.cantidad)}" ${ro ? 'readonly' : ''}>
+          <button type="button" id="c-mas" ${ro ? 'disabled' : ''}>＋</button></div>
+        <div class="row">
           <div><label for="l-unidad">Unidad</label><select id="l-unidad" ${ro ? 'disabled' : ''}><option value="">—</option>${unis.map(u => `<option ${u === l.unidad ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></div>
-        </div>
-        <label for="l-precio">Precio por ${esc(l.unidad || 'unidad')}</label>
-        <input id="l-precio" inputmode="numeric" placeholder="$" value="${Calc.vacio(l.precioUnit) ? '' : Math.round(Calc.num(l.precioUnit)).toLocaleString('es-CL')}" ${ro ? 'readonly' : ''}>`
+          <div><label for="l-precio">Precio por ${esc(l.unidad || 'unidad')}</label>
+          <input id="l-precio" inputmode="numeric" placeholder="$" value="${Calc.vacio(l.precioUnit) ? '' : Math.round(Calc.num(l.precioUnit)).toLocaleString('es-CL')}" ${ro ? 'readonly' : ''}></div>
+        </div>`
       : !compra ? `<label for="l-horas">Horas (mínimo 1, de media en media)</label>
         <div class="stepper">
           <button type="button" id="h-menos" ${ro ? 'disabled' : ''}>−</button>
           <input id="l-horas" inputmode="decimal" value="${dec(l.horas)}" ${ro ? 'readonly' : ''}>
           <button type="button" id="h-mas" ${ro ? 'disabled' : ''}>＋</button>
         </div>`
-      : `<div class="row">
-          <div><label for="l-cant">Cantidad</label><input id="l-cant" inputmode="decimal" value="${dec(l.cantidad)}" ${ro ? 'readonly' : ''}></div>
-          <div><label for="l-costo">Costo unitario $</label><input id="l-costo" inputmode="numeric" placeholder="0" value="${l.costoUnit === '' ? '' : Math.round(Calc.num(l.costoUnit)).toLocaleString('es-CL')}" ${ro ? 'readonly' : ''}></div>
-        </div>
+      : `<label for="l-cant">Cantidad</label><div class="stepper">
+          <button type="button" id="c-menos" ${ro ? 'disabled' : ''}>−</button>
+          <input id="l-cant" inputmode="decimal" value="${dec(l.cantidad)}" ${ro ? 'readonly' : ''}>
+          <button type="button" id="c-mas" ${ro ? 'disabled' : ''}>＋</button></div>
+        <label for="l-costo">Costo unitario $</label><input id="l-costo" inputmode="numeric" placeholder="0" value="${l.costoUnit === '' ? '' : Math.round(Calc.num(l.costoUnit)).toLocaleString('es-CL')}" ${ro ? 'readonly' : ''}>
 `}
       <label for="l-fecha">Fecha</label>
       <input type="date" id="l-fecha" value="${esc(String(l.fecha || '').slice(0, 10))}" ${ro ? 'readonly' : ''}>
@@ -671,7 +774,7 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
         } else l.tarifaId = '';
         montar();
       });
-      $('#l-cant').addEventListener('input', e => { l.cantidad = Calc.num(e.target.value); preview(); });
+      stepperCant(l, preview);
       $('#l-unidad').addEventListener('change', e => { l.unidad = e.target.value; preview(); const lb = m.querySelector('label[for="l-precio"]'); if (lb) lb.textContent = 'Precio por ' + (l.unidad || 'unidad'); });
       const pr = $('#l-precio');
       pr.addEventListener('input', () => {
@@ -700,7 +803,7 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
         const t = S.tiposItem.find(x => x.id === e.target.value);
         l.tipoItemId = t.id; l.tipoItem = t.nombre;
       });
-      $('#l-cant').addEventListener('input', e => { l.cantidad = Calc.num(e.target.value); preview(); });
+      stepperCant(l, preview);
       const co = $('#l-costo');
       co.addEventListener('input', () => {
         const d = soloDigitos(co.value);
@@ -741,7 +844,7 @@ function abrirLinea(i, soloLectura = false, tipoNuevo = 'Mano de obra') {
 
 // ════════════════════════════════════════════════════════ FOTOS
 const ETAPAS_FOTO = ['Antes', 'Durante', 'Después'];
-const etapaSugerida = () => ({ 'Pendiente': 'Antes', 'En curso': 'Durante', 'Terminada': 'Después' }[ED && ED.ot.estado] || 'Durante');
+const etapaSugerida = () => ED && ED.ot.nOT && etapaOT(ED.ot) !== 'Borrador' ? 'Durante' : 'Antes';
 
 async function cargarFotos(nOT, forzar = false) {
   if (FOTOS[nOT] && !forzar) return FOTOS[nOT];
@@ -891,8 +994,8 @@ function renderCotCard() {
         <div class="li-body"><div class="li-tit">${esc(etiquetaCot(c))} ${badgeCot(c)}</div>
         <div class="li-sub">${fechaCorta(c.fecha)} · ${clp(c.total)}${otras.length ? ' · junto a ' + otras.map(otNum).join(', ') : ''}</div></div>
         <span class="chev">›</span></div>`;
-    }).join('') : `<p class="hint">${n ? 'Aún no se ha generado ninguna cotización para esta OT.' : 'Guarda la OT para generar la cotización.'}</p>`}
-    ${n ? `<button class="btn btn-primary btn-full" style="margin-top:12px" id="cot-gen">📄 Nueva cotización</button>
+    }).join('') : `<p class="hint">${n && ED.ot.estado !== 'Borrador' ? 'Aún no se ha generado ninguna cotización para esta OT.' : 'Guarda la OT (Guardar OT) para generar la cotización.'}</p>`}
+    ${n && !['Borrador', 'Anulada'].includes(ED.ot.estado) ? `<button class="btn btn-primary btn-full" style="margin-top:12px" id="cot-gen">📄 Nueva cotización</button>
       <p class="hint" style="margin-top:8px">Para cotizar varias OT juntas: en la lista de OT usa "☑ Seleccionar".</p>` : ''}`;
   const b = $('#cot-gen'); if (b) b.onclick = () => abrirGenerar([Number(n)]);
   box.querySelectorAll('[data-cot]').forEach(el => el.onclick = () => modalCot(el.dataset.cot));
@@ -1027,6 +1130,8 @@ function abrirGenerar(nOTs, numeroBase = '') {
   if (ED && ED.dirty && nOTs.includes(Number(ED.ot.nOT))) { toast('Guarda los cambios de la OT antes de generar la cotización', 'err'); return; }
   const ots = nOTs.map(n => S.ots.find(o => Number(o.nOT) === Number(n))).filter(Boolean);
   if (!ots.length) { toast('No se encontraron las OT', 'err'); return; }
+  const borr = ots.find(o => o.estado === 'Borrador' || o.estado === 'Anulada');
+  if (borr) { toast(otNum(borr.nOT) + (borr.estado === 'Borrador' ? ' es un borrador: guárdala primero (Guardar OT)' : ' está anulada'), 'err'); return; }
   const cerrada = ots.find(otCerrada);
   if (cerrada) { toast(otNum(cerrada.nOT) + ' tiene OC asignada: la cotización está cerrada', 'err'); return; }
   if (new Set(ots.map(o => o.clienteId)).size > 1) { toast('Las OT deben ser del mismo cliente para cotizarlas juntas', 'err'); return; }
@@ -1034,7 +1139,7 @@ function abrirGenerar(nOTs, numeroBase = '') {
     const sols = [...new Set(ots.map(o => o.solicitante || '(sin solicitante)'))];
     if (sols.length > 1 && !confirm('Estas OT fueron pedidas por personas distintas:\n\n' + ots.map(o => `${otNum(o.nOT)}: ${o.solicitante || '(sin solicitante)'}`).join('\n') + '\n\n¿Seguro que van en la misma cotización?')) return;
     const edifs = [...new Set(ots.map(o => (S.ubicaciones.find(u => u.id === o.ubicacionId) || {}).edificio || '(sin ubicación)'))];
-    if (edifs.length > 1 && !confirm('Estas OT son de edificios distintos:\n\n' + ots.map(o => `${otNum(o.nOT)}: ${(S.ubicaciones.find(u => u.id === o.ubicacionId) || {}).edificio || '(sin ubicación)'}`).join('\n') + '\n\n¿Seguro que van en la misma cotización?')) return;
+    if (edifs.length > 1 && !confirm('Estas OT son de lugares distintos:\n\n' + ots.map(o => `${otNum(o.nOT)}: ${(S.ubicaciones.find(u => u.id === o.ubicacionId) || {}).edificio || '(sin ubicación)'}`).join('\n') + '\n\n¿Seguro que van en la misma cotización?')) return;
   }
   modalCotizacion(ots, numeroBase);
 }
@@ -1211,14 +1316,14 @@ function modalUbicacion(u, onSaved) {
   const nuevo = !u.id;
   const m = abrirModal(`
     <h3>${nuevo ? 'Nueva ubicación' : 'Editar ubicación'}<button class="x" data-cerrar>✕</button></h3>
-    <label for="u-edif">Edificio</label><input id="u-edif" value="${esc(u.edificio)}" placeholder="Ej: Facultad de Ingeniería">
-    <label for="u-det">Detalle / sector</label><input id="u-det" value="${esc(u.detalle)}" placeholder="Ej: Baño 2° piso, ala norte">
+    <label for="u-edif">Lugar</label><input id="u-edif" value="${esc(u.edificio)}" placeholder="Ej: Facultad de Ingeniería">
+    <label for="u-det">Detalle o nota adicional</label><input id="u-det" value="${esc(u.detalle)}" placeholder="Ej: Baño 2° piso, ala norte">
     ${nuevo ? '' : `<label class="check"><input type="checkbox" id="u-activo" ${u.activo !== false ? 'checked' : ''}> Activa</label>`}
     <div class="btn-row"><button class="btn btn-primary" id="u-ok">Guardar</button></div>`);
   setTimeout(() => $('#u-edif').focus(), 50);
   $('#u-ok').onclick = async () => {
     const item = Object.assign({}, u, { edificio: $('#u-edif').value.trim(), detalle: $('#u-det').value.trim(), activo: $('#u-activo') ? $('#u-activo').checked : true });
-    if (!item.edificio) { toast('Escribe el edificio', 'err'); return; }
+    if (!item.edificio) { toast('Escribe el lugar', 'err'); return; }
     await guardarCatalogo('saveUbicacion', 'ubicaciones', item, onSaved, m);
   };
 }
@@ -1247,7 +1352,7 @@ function renderClientes(app) {
     ${tituloSeccion('Clientes')}
     <div class="card">
       ${lista.length ? lista.map(c => {
-        const nOT = S.ots.filter(o => o.clienteId === c.id && o.estado !== 'Anulada').length;
+        const nOT = S.ots.filter(o => o.clienteId === c.id && otReal(o)).length;
         const nSol = S.solicitantes.filter(s => s.clienteId === c.id && s.activo !== false).length;
         const nUbi = S.ubicaciones.filter(u => u.clienteId === c.id && u.activo !== false).length;
         return `<a class="list-item ${c.activo === false ? 'inactivo' : ''}" href="#/cliente/${encodeURIComponent(c.id)}" style="text-decoration:none;color:inherit">
@@ -1287,7 +1392,7 @@ function renderCliente(app, idParam) {
       <button class="btn btn-sec btn-full" style="margin-top:10px" id="c-add-sol">＋ Agregar solicitante</button>
     </div>
     <div class="card">
-      <h2>🏢 Ubicaciones <span class="extra">edificios y sectores</span></h2>
+      <h2>🏢 Ubicaciones <span class="extra">lugares y sectores</span></h2>
       ${ubis.length ? ubis.map(u => `<div class="list-item ${u.activo === false ? 'inactivo' : ''}" data-ubi="${esc(u.id)}"><div class="li-body"><div class="li-tit">${esc(u.edificio)}</div><div class="li-sub">${esc(u.detalle || '—')}</div></div><span class="chev">›</span></div>`).join('') : '<p class="hint">Sin ubicaciones.</p>'}
       <button class="btn btn-sec btn-full" style="margin-top:10px" id="c-add-ubi">＋ Agregar ubicación</button>
     </div>`}`;
