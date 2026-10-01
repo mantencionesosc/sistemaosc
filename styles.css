@@ -420,3 +420,18 @@ hr.sep { border: 0; border-top: 1px solid var(--linea); margin: 14px 0 0; }
 .rev-fila { font-weight: 400; color: var(--cafe); margin: 0; }
 .rev-body .hint { font-weight: 400; font-size: 12.5px; line-height: 1.35; }
 .rev-montos span { font-weight: 400; }
+
+/* Análisis (v3.5) */
+.cfg-link { text-decoration: none; color: inherit; display: flex; align-items: center; padding: 14px 16px; }
+.an-sel { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.an-fila { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--linea); }
+.an-fila.on { background: var(--ambar-bg); margin: 0 -10px; padding: 10px; border-radius: 10px; }
+.an-fila input { width: 22px; height: 22px; min-height: 0; margin-top: 2px; accent-color: var(--terra); flex: none; }
+.an-body { flex: 1; min-width: 0; }
+.an-tit { color: var(--cafe); text-decoration: none; font-size: 14.5px; display: block; }
+.an-meta { font-size: 12px; color: var(--gris); margin-top: 3px; }
+.an-meta .badge { font-size: 11px; padding: 2px 7px; }
+.an-des { font-size: 12px; color: var(--cafe-2); margin-top: 4px; line-height: 1.4; }
+.an-neto { text-align: right; font-weight: 800; color: var(--cafe); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.an-neto small { display: block; font-weight: 500; font-size: 11px; color: var(--gris); }
+.an-fila.on .badge { background: var(--blanco); }

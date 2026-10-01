@@ -16,7 +16,7 @@ let DEMO = LS.get('osc_demo') === '1';
 const S = { config: {}, categorias: [], tiposItem: [], unidades: [], tarifario: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [], ordenesCompra: [], facturas: [] };
 const FOTOS = {};   // nOT -> [{...foto, data}] (se cargan al abrir la OT)
 let SYNCED = false;
-const APP_VERSION = '3.4';
+const APP_VERSION = '3.5';
 const API_REQUERIDA = '3.4';
 /** OT cerrada: con OC asignada o facturada. Se muestra como informe de solo lectura. */
 const folioTxt = f => 'Folio Nº ' + esc(f);
@@ -268,7 +268,7 @@ window.addEventListener('beforeunload', e => { if (ED && ED.dirty) { e.preventDe
 function render() {
   const [vista, param] = ruta();
   RUTA_ACTUAL = location.hash || '#/ots';
-  document.querySelectorAll('.bottom-nav a').forEach(a => a.classList.toggle('active', a.dataset.nav === ({ ot: 'ots', cliente: 'clientes', cot: 'cots' }[vista] || vista)));
+  document.querySelectorAll('.bottom-nav a').forEach(a => a.classList.toggle('active', a.dataset.nav === ({ ot: 'ots', cliente: 'config', clientes: 'config', cot: 'cots' }[vista] || vista)));
   document.body.classList.toggle('editor-open', vista === 'ot');
   const app = $('#app');
   if (vista !== 'ot') ED = null;
@@ -279,6 +279,7 @@ function render() {
   if (vista === 'config') return renderConfig(app);
   if (vista === 'cots') return renderCots(app);
   if (vista === 'fact') return renderFact(app);
+  if (vista === 'analisis') return renderAnalisis(app);
   if (vista === 'cot') return renderCot(app, decodeURIComponent(param || ''));
   return renderOTs(app);
 }
@@ -1547,7 +1548,7 @@ function renderClientes(app) {
   const lista = S.clientes.slice().sort((a, b) => (b.activo !== false) - (a.activo !== false) || String(a.razonSocial).localeCompare(b.razonSocial));
   app.innerHTML = `
     ${noConectado()}
-    ${tituloSeccion('Clientes')}
+    <div class="ed-head"><button class="back" onclick="location.hash='#/config'" aria-label="Volver">←</button><h2>Clientes</h2></div>
     <div class="card">
       ${lista.length ? lista.map(c => {
         const nOT = S.ots.filter(o => o.clienteId === c.id && otReal(o)).length;
@@ -1626,6 +1627,7 @@ function renderConfig(app) {
 
   app.innerHTML = `
     ${tituloSeccion('Configuración')}
+    ${conectado ? `<a class="card list-item cfg-link" href="#/clientes"><div class="li-body"><div class="li-tit">👥 Clientes</div><div class="li-sub">Datos, solicitantes y ubicaciones</div></div><span class="chev">›</span></a>` : ''}
     <div class="card">
       <h2>🔌 Conexión con la planilla</h2>
       ${DEMO ? `<div class="warn-banner">Estás en <b>modo demo</b>: los datos son de ejemplo y se guardan solo en este teléfono. Nada llega a Google Sheets.</div>` : ''}

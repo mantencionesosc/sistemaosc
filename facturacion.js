@@ -175,10 +175,11 @@ function modalOC(nOC) {
 
 // ════════════════════════════════════════════════════════ PESTAÑA FACTURACIÓN
 function renderFact(app) {
-  if (!FACT_TAB) FACT_TAB = LS.get('osc_fact_tab', 'resumen');
+  if (!FACT_TAB) FACT_TAB = LS.get('osc_fact_tab', 'porfacturar');
+  if (FACT_TAB === 'resumen') FACT_TAB = 'porfacturar';  // el resumen se movió a Análisis (v3.5)
   const porFacturar = S.ordenesCompra.filter(o => !o.folio);
   const pendientes = S.facturas.filter(f => f.estadoPago !== 'Pagada');
-  const tabs = [['resumen', '📊 Resumen'], ['porfacturar', `Por facturar${porFacturar.length ? ' (' + porFacturar.length + ')' : ''}`], ['facturas', `Facturas${pendientes.length ? ' (' + pendientes.length + ')' : ''}`]];
+  const tabs = [['porfacturar', `Por facturar${porFacturar.length ? ' (' + porFacturar.length + ')' : ''}`], ['facturas', `Facturas${pendientes.length ? ' (' + pendientes.length + ')' : ''}`]];
   app.innerHTML = `${noConectado()}
     ${tituloSeccion('Facturación')}
     <div class="seg" id="ft-tabs" style="margin-bottom:12px">${tabs.map(([k, t]) => `<button type="button" data-v="${k}" class="${FACT_TAB === k ? 'on' : ''}">${t}</button>`).join('')}</div>
@@ -187,7 +188,7 @@ function renderFact(app) {
   const body = $('#ft-body');
   if (FACT_TAB === 'porfacturar') return renderPorFacturar(body, porFacturar);
   if (FACT_TAB === 'facturas') return renderFacturas(body);
-  return renderPanel(body);
+  return renderPorFacturar(body, porFacturar);
 }
 
 function renderPorFacturar(body, ocs) {

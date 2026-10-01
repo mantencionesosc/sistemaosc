@@ -3,7 +3,7 @@
 App web para registrar las **órdenes de trabajo (OT)** de Mantenciones OSC desde el celular.
 La fuente de verdad es una **planilla de Google Sheets** y el backend es **Apps Script**.
 
-**Versión 3.4 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
+**Versión 3.5 (esta versión):** OT con bitácora de gestión de compras (ítems + tiempo) y mano de obra, fotos (antes / durante / después) y cotización en PDF, clientes con solicitantes y ubicaciones, y configuración de valor hora por categoría, recargo general, IVA y datos de la empresa.
 
 **Incluye también (v3.0):** órdenes de compra, facturación con folio SII, registro de pagos y panel de ventas.
 
@@ -84,6 +84,15 @@ Cada línea guarda el valor hora vigente cuando se creó y cada OT guarda el % d
 - **Panel (Resumen):** por semana, mes, mes anterior, año o fechas a elección, y por cliente: facturado (neto, IVA, total), IVA del periodo (débito), cobrado, por cobrar, OT del periodo, lo que va en camino (cotizado sin OC y con OC sin factura), gráfico de facturado por mes y por categoría, y un PDF de resumen.
   - *Facturado* se cuenta por la fecha de la factura; *OT del periodo*, por la fecha de la OT; *Cobrado*, por la fecha de pago.
   - *Por categoría* reparte el neto de las OT facturadas en sus categorías (cada oficio, gestión de compras, materiales y compras), con el recargo incluido.
+
+## 📊 Análisis (v3.5)
+Pestaña nueva en la barra de abajo (reemplaza al antiguo *Facturación → Resumen*; Clientes pasó a Config).
+- **Base:** *Facturado* (OT de las facturas del periodo, por fecha de factura) o *Todas las OT* (por fecha de OT, sin borradores ni anuladas, con filtros por etapa: guardadas, cotizadas, con OC, facturadas).
+- **Periodo:** semana, mes, mes anterior, año o fechas a elección; y por cliente.
+- **Indicadores:** neto, IVA débito (real y proyectado), IVA crédito (próximamente, con el registro de gastos), IVA a pagar estimado, % de herramientas, % de margen de contribución, % de utilidad y costo directo.
+- **Composición del neto:** costo directo, herramientas, margen y utilidad.
+- **Por etapa** y **tabla de OT** con su desglose; marcando una o varias OT, todos los indicadores se calculan solo para ellas.
+- Más abajo: facturado por mes, neto por categoría, cobranza (cobrado, por cobrar, en camino) y el PDF de resumen.
 
 ## Instalación (una sola vez, con la cuenta de Google de Mantenciones)
 
