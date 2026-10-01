@@ -12,10 +12,13 @@ function desgloseOT(o) {
   const neto = Calc.num(o.neto), rec = Calc.num(o.recargo), marg = Calc.num(o.margen), desg = Calc.num(o.desgaste);
   const sub = Calc.num(o.subtotal) || Math.max(0, neto - rec - marg);
   const mo = Calc.subtotal(ls.filter(l => Calc.tipoDe(l) === 'Mano de obra'));
-  return { costo: sub - desg, desg, marg, rec, sub, neto, iva: Calc.num(o.iva), total: Calc.num(o.total), mo };
+  const compras = Calc.subtotal(ls.filter(l => Calc.tipoDe(l) === 'Compra'));
+  const gest = Calc.subtotal(ls.filter(l => Calc.tipoDe(l) === 'Tiempo de gestión'));
+  const costo = ls.length ? compras + gest + mo : sub - desg;
+  return { costo, compras, gest, desg, marg, rec, sub, neto, iva: Calc.num(o.iva), total: Calc.num(o.total), mo };
 }
 const sumaD = ds => ds.reduce((a, d) => { Object.keys(d).forEach(k => { a[k] = (a[k] || 0) + d[k]; }); return a; },
-  { costo: 0, desg: 0, marg: 0, rec: 0, sub: 0, neto: 0, iva: 0, total: 0, mo: 0 });
+  { costo: 0, compras: 0, gest: 0, desg: 0, marg: 0, rec: 0, sub: 0, neto: 0, iva: 0, total: 0, mo: 0 });
 const pctDe = (a, b) => b ? (Math.round(a / b * 1000) / 10).toString().replace('.', ',') + '%' : '—';
 
 function datosAnalisis() {
@@ -73,12 +76,13 @@ function renderAnalisis(app) {
       ${tile('Herramientas', pctDe(t.desg, t.neto), `${clp(t.desg)} del neto · ${pctDe(t.desg, t.mo)} de la mano de obra`)}
       ${tile('Margen de contribución', pctDe(t.marg, t.neto), `${clp(t.marg)} del neto · ${pctDe(t.marg, t.sub)} sobre el costo`)}
       ${tile('Utilidad (recargo)', pctDe(t.rec, t.neto), `${clp(t.rec)} del neto · ${pctDe(t.rec, t.sub + t.marg)} sobre costo + margen`)}
-      ${tile('Costo directo', pctDe(t.costo, t.neto), `${clp(t.costo)} · compras, gestión y mano de obra`)}
+      ${tile('Costo directo', pctDe(t.costo, t.neto), `${clp(t.costo)} · compras ${pctDe(t.compras, t.neto)} · gestión ${pctDe(t.gest, t.neto)} · mano de obra ${pctDe(t.mo, t.neto)}`)}
     </div>
 
     <div class="card">
       <h2>¿De qué se compone el neto? <span class="extra">${clp(t.neto)}</span></h2>
-      ${t.neto ? graficoCategorias([['Costo directo', t.costo], ['Herramientas', t.desg], ['Margen de contribución', t.marg], ['Utilidad (recargo)', t.rec]].filter(x => x[1] > 0)) : '<p class="hint">Sin OT en el periodo.</p>'}
+      ${t.neto ? composicion([['Compras y materiales', t.compras, 'cd'], ['Tiempo de gestión de compras', t.gest, 'cd'], ['Mano de obra', t.mo, 'cd'], ['Herramientas', t.desg], ['Margen de contribución', t.marg], ['Utilidad (recargo)', t.rec]], t.neto)
+        + `<p class="hint" style="margin-top:8px">Costo directo (compras + gestión + mano de obra): <b>${clp(t.costo)}</b> · ${pctDe(t.costo, t.neto)} del neto.</p>` : '<p class="hint">Sin OT en el periodo.</p>'}
       ${fact && !nSel && Math.abs(t.neto - d.neto) > 1 ? `<p class="hint" style="margin-top:8px">El neto de las OT (${clp(t.neto)}) difiere del facturado (${clp(d.neto)}): alguna OC o factura se registró por un monto distinto.</p>` : ''}
     </div>
 
@@ -145,4 +149,13 @@ function filaAnalisis(o) {
     </div>
     <div class="an-neto">${clp(x.neto)}<small>neto</small></div>
   </div>`;
+}
+
+/** Barras de composición del neto: nombre, % y monto arriba; barra a lo ancho debajo (se lee completo en el celular). */
+function composicion(items, neto) {
+  const xs = items.filter(x => x[1] > 0);
+  const max = Math.max(...xs.map(x => x[1]), 1);
+  return `<div class="comp">${xs.map(([k, v, g]) => `<div class="comp-f g-hit" data-tip="${esc(k)}: ${clp(v)} (${pctDe(v, neto)} del neto)">
+    <div class="comp-l"><span>${g ? '<i class="comp-cd">costo</i>' : ''}${esc(k)}</span><span><small>${pctDe(v, neto)}</small> <b>${clp(v)}</b></span></div>
+    <div class="hbar-track"><div class="hbar-fill ${g ? '' : 'comp-ex'}" style="width:${Math.max(1.5, v / max * 100)}%"></div></div></div>`).join('')}</div>`;
 }

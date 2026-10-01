@@ -16,7 +16,7 @@ let DEMO = LS.get('osc_demo') === '1';
 const S = { config: {}, categorias: [], tiposItem: [], unidades: [], tarifario: [], clientes: [], solicitantes: [], ubicaciones: [], ots: [], lineas: [], fotos: [], cotizaciones: [], ordenesCompra: [], facturas: [] };
 const FOTOS = {};   // nOT -> [{...foto, data}] (se cargan al abrir la OT)
 let SYNCED = false;
-const APP_VERSION = '3.5';
+const APP_VERSION = '3.5.1';
 const API_REQUERIDA = '3.4';
 /** OT cerrada: con OC asignada o facturada. Se muestra como informe de solo lectura. */
 const folioTxt = f => 'Folio Nº ' + esc(f);
